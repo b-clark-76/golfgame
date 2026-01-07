@@ -164,40 +164,39 @@
     <script>
         /**
          * DEFAULT COURSE DATA
-         * Normalized coordinates (0.0 to 1.0) for resolution independence.
          */
         const defaultCourseData = {
             name: "Default Links",
             levels: [
-                // Level 1: Straight Shot
                 {
                     par: 2,
+                    scale: 1.0,
                     start: {x: 0.2, y: 0.5},
                     hole: {x: 0.8, y: 0.5},
                     walls: [],
                     sand: [{x: 0.4, y: 0.3, w: 0.2, h: 0.4}],
                     water: []
                 },
-                // Level 2: Dogleg Right
                 {
                     par: 3,
+                    scale: 1.0,
                     start: {x: 0.15, y: 0.8},
                     hole: {x: 0.85, y: 0.2},
                     walls: [{x: 0.4, y: 0.4, w: 0.6, h: 0.05}],
                     sand: [],
                     water: [{x: 0.6, y: 0.6, w: 0.15, h: 0.15}]
                 },
-                // Level 3: The Gap
                 {
-                    par: 4,
-                    start: {x: 0.5, y: 0.9},
-                    hole: {x: 0.5, y: 0.1},
-                    walls: [{x: 0.3, y: 0.4, w: 0.4, h: 0.1}],
-                    sand: [],
-                    water: [
-                        {x: 0.0, y: 0.4, w: 0.2, h: 0.1},
-                        {x: 0.8, y: 0.4, w: 0.2, h: 0.1}
-                    ]
+                    par: 5,
+                    scale: 2.0, // Large level
+                    start: {x: 0.1, y: 0.9},
+                    hole: {x: 0.9, y: 0.1},
+                    walls: [
+                        {x: 0.3, y: 0.4, w: 0.4, h: 0.05},
+                        {x: 0.5, y: 0.6, w: 0.05, h: 0.3}
+                    ],
+                    sand: [{x: 0.7, y: 0.2, w: 0.2, h: 0.2}],
+                    water: [{x: 0.4, y: 0.8, w: 0.3, h: 0.1}]
                 }
             ]
         };
@@ -233,14 +232,22 @@
         let activeCourse = null;
         let gameState = {
             isPlaying: false,
-            levelIndex: 0, // 0-based index
+            levelIndex: 0, 
             strokes: 0,
             par: 3,
+            
+            // World/Camera
+            levelScale: 1.0,
+            worldWidth: 0,
+            worldHeight: 0,
+            camera: { x: 0, y: 0 },
+
             isDragging: false,
-            dragStartX: 0,
-            dragStartY: 0,
-            dragCurrentX: 0,
-            dragCurrentY: 0,
+            dragStartX: 0, // World coords
+            dragStartY: 0, // World coords
+            dragCurrentX: 0, // World coords
+            dragCurrentY: 0, // World coords
+            
             ball: { x: 0, y: 0, vx: 0, vy: 0, radius: 8, color: '#ecf0f1', moving: false, inHole: false },
             hole: { x: 0, y: 0, radius: 12 },
             walls: [],
@@ -257,17 +264,11 @@
             canvas.width = width;
             canvas.height = height;
             
-            // If playing, re-calculate scale for current level objects
             if (gameState.isPlaying) {
-                // To keep it simple, we re-load the current level to snap objects to new screen size
-                // We try to preserve ball position ratio
-                const oldW = (width / window.innerWidth) * width; // approximate previous
-                // Ideally, we just reset the level geometry but keep ball relative pos
                 if(!gameState.ball.moving) {
                     loadLevel(gameState.levelIndex, true);
                 }
             } else {
-                // If on menu, just draw a simple background
                 drawMenuBackground();
             }
         }
@@ -298,7 +299,6 @@
 
         function validateCourse(data) {
             if (!data.levels || !Array.isArray(data.levels) || data.levels.length === 0) return false;
-            // Check first level structure
             const lvl = data.levels[0];
             if (!lvl.start || !lvl.hole) return false;
             return true;
@@ -309,7 +309,6 @@
         function startGame(customCourseData) {
             activeCourse = customCourseData || defaultCourseData;
             
-            // UI Transition
             startMenu.style.display = 'none';
             uiLayer.style.display = 'block';
             controlsHint.style.display = 'block';
@@ -317,7 +316,7 @@
             uiTotalLevels.innerText = activeCourse.levels.length;
 
             gameState.isPlaying = true;
-            resize(); // Ensure canvas is sized
+            resize(); 
             loadLevel(0);
             
             if (animationFrameId) cancelAnimationFrame(animationFrameId);
@@ -343,18 +342,25 @@
                 gameState.ball.inHole = false;
             }
             gameState.isDragging = false;
-
+            
+            // Camera & Scale Setup
+            gameState.levelScale = levelData.scale || 1.0;
+            gameState.worldWidth = width * gameState.levelScale;
+            gameState.worldHeight = height * gameState.levelScale;
+            
             updateUI();
 
             // Coordinate conversion helper
-            // JSON uses 0.0-1.0. We convert to pixels.
-            const sx = (val) => val * width;
-            const sy = (val) => val * height;
+            const sx = (val) => val * gameState.worldWidth;
+            const sy = (val) => val * gameState.worldHeight;
 
             // Setup Objects
             if (!preserveBall) {
                 gameState.ball.x = sx(levelData.start.x);
                 gameState.ball.y = sy(levelData.start.y);
+                // Center camera on ball initially
+                gameState.camera.x = gameState.ball.x - width/2;
+                gameState.camera.y = gameState.ball.y - height/2;
             }
             gameState.hole.x = sx(levelData.hole.x);
             gameState.hole.y = sy(levelData.hole.y);
@@ -364,11 +370,11 @@
             gameState.water = [];
             gameState.sand = [];
 
-            // Add standard border walls
-            gameState.walls.push({x: 0, y: 0, w: width, h: 20}); // Top
-            gameState.walls.push({x: 0, y: height - 20, w: width, h: 20}); // Bottom
-            gameState.walls.push({x: 0, y: 0, w: 20, h: height}); // Left
-            gameState.walls.push({x: width - 20, y: 0, w: 20, h: height}); // Right
+            // Add standard border walls (World Borders)
+            gameState.walls.push({x: 0, y: 0, w: gameState.worldWidth, h: 20}); // Top
+            gameState.walls.push({x: 0, y: gameState.worldHeight - 20, w: gameState.worldWidth, h: 20}); // Bottom
+            gameState.walls.push({x: 0, y: 0, w: 20, h: gameState.worldHeight}); // Left
+            gameState.walls.push({x: gameState.worldWidth - 20, y: 0, w: 20, h: gameState.worldHeight}); // Right
 
             // Load Custom Obstacles
             if (levelData.walls) {
@@ -386,25 +392,39 @@
             gameState.isPlaying = false;
             showMessage("Course Complete!");
             setTimeout(() => {
-                location.reload(); // Reload page to return to menu
+                location.reload(); 
             }, 3000);
         }
 
-        // --- Inputs ---
+        // --- Inputs (Screen to World Conversion) ---
 
         function getPointerPos(e) {
-            if (e.touches) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
-            return { x: e.clientX, y: e.clientY };
+            let cx, cy;
+            if (e.touches) {
+                cx = e.touches[0].clientX;
+                cy = e.touches[0].clientY;
+            } else {
+                cx = e.clientX;
+                cy = e.clientY;
+            }
+            // Convert to World Coordinates
+            return { 
+                x: cx + gameState.camera.x, 
+                y: cy + gameState.camera.y 
+            };
         }
 
         function handleStart(e) {
             if (!gameState.isPlaying || gameState.ball.moving || gameState.ball.inHole) return;
             const pos = getPointerPos(e);
+            
             gameState.isDragging = true;
+            // Start drag from Ball position (World)
             gameState.dragStartX = gameState.ball.x; 
             gameState.dragStartY = gameState.ball.y;
             gameState.dragCurrentX = pos.x;
             gameState.dragCurrentY = pos.y;
+            
             updateGolferAngle(pos.x, pos.y);
         }
 
@@ -448,9 +468,21 @@
         window.addEventListener('touchmove', (e) => { e.preventDefault(); handleMove(e); }, {passive: false});
         window.addEventListener('touchend', handleEnd);
 
-        // --- Physics ---
+        // --- Physics & Camera ---
 
         function update() {
+            // Update Camera
+            const targetCamX = gameState.ball.x - width / 2;
+            const targetCamY = gameState.ball.y - height / 2;
+            
+            // Smooth follow
+            gameState.camera.x += (targetCamX - gameState.camera.x) * 0.1;
+            gameState.camera.y += (targetCamY - gameState.camera.y) * 0.1;
+            
+            // Clamp camera to world bounds
+            gameState.camera.x = Math.max(0, Math.min(gameState.camera.x, gameState.worldWidth - width));
+            gameState.camera.y = Math.max(0, Math.min(gameState.camera.y, gameState.worldHeight - height));
+
             if (!gameState.ball.moving) return;
 
             gameState.ball.x += gameState.ball.vx;
@@ -485,12 +517,14 @@
                     showMessage("SPLASH! +1 Stroke");
                     gameState.ball.moving = false;
                     setTimeout(() => {
-                        // Reset to start of THIS level
+                        // Reset to start
                         const levelData = activeCourse.levels[gameState.levelIndex];
-                        gameState.ball.x = levelData.start.x * width;
-                        gameState.ball.y = levelData.start.y * height;
+                        gameState.ball.x = levelData.start.x * gameState.worldWidth;
+                        gameState.ball.y = levelData.start.y * gameState.worldHeight;
                         gameState.ball.vx = 0;
                         gameState.ball.vy = 0;
+                        gameState.camera.x = gameState.ball.x - width/2;
+                        gameState.camera.y = gameState.ball.y - height/2;
                         updateUI();
                         hideMessage();
                     }, 1000);
@@ -505,7 +539,7 @@
 
             if (dist < gameState.hole.radius) {
                 const speed = Math.sqrt(gameState.ball.vx*gameState.ball.vx + gameState.ball.vy*gameState.ball.vy);
-                if (speed < 12) { // Slightly generous hole physics
+                if (speed < 12) {
                     gameState.ball.inHole = true;
                     gameState.ball.moving = false;
                     gameState.ball.x = gameState.hole.x;
@@ -579,7 +613,6 @@
         // --- Rendering ---
 
         function drawMenuBackground() {
-            // Simple animated background for menu
             ctx.fillStyle = '#2c3e50';
             ctx.fillRect(0, 0, width, height);
             ctx.strokeStyle = '#34495e';
@@ -599,15 +632,19 @@
                 return;
             }
 
-            // Grass
+            // Save context and apply Camera Translate
+            ctx.save();
+            ctx.translate(-gameState.camera.x, -gameState.camera.y);
+
+            // Grass (Draw world size)
             ctx.fillStyle = '#27ae60';
-            ctx.fillRect(0, 0, width, height);
+            ctx.fillRect(0, 0, gameState.worldWidth, gameState.worldHeight);
 
             // Grid
             ctx.strokeStyle = 'rgba(0,0,0,0.05)';
             ctx.lineWidth = 1;
-            for(let x=0; x<width; x+=40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,height); ctx.stroke(); }
-            for(let y=0; y<height; y+=40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(width,y); ctx.stroke(); }
+            for(let x=0; x<gameState.worldWidth; x+=40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,gameState.worldHeight); ctx.stroke(); }
+            for(let y=0; y<gameState.worldHeight; y+=40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(gameState.worldWidth,y); ctx.stroke(); }
 
             // Obstacles
             ctx.fillStyle = '#f1c40f';
@@ -665,6 +702,62 @@
                 ctx.beginPath(); ctx.moveTo(power, 0); ctx.lineTo(power - 10, -5); ctx.lineTo(power - 10, 5); ctx.fill();
                 ctx.restore();
             }
+
+            // Restore context (End World Draw)
+            ctx.restore();
+
+            // UI Overlays (Screen Space)
+            drawOffscreenIndicator();
+        }
+
+        function drawOffscreenIndicator() {
+            // Check if hole is visible
+            const holeScreenX = gameState.hole.x - gameState.camera.x;
+            const holeScreenY = gameState.hole.y - gameState.camera.y;
+
+            const margin = 30;
+            const isOffscreen = 
+                holeScreenX < -margin || 
+                holeScreenX > width + margin || 
+                holeScreenY < -margin || 
+                holeScreenY > height + margin;
+
+            if (isOffscreen) {
+                const dx = holeScreenX - (width / 2);
+                const dy = holeScreenY - (height / 2);
+                const angle = Math.atan2(dy, dx);
+                
+                // Position arrow at edge of screen
+                const cx = width / 2;
+                const cy = height / 2;
+                const r = Math.min(width, height) / 2 - 40;
+                
+                const arrowX = cx + Math.cos(angle) * r;
+                const arrowY = cy + Math.sin(angle) * r;
+
+                ctx.save();
+                ctx.translate(arrowX, arrowY);
+                ctx.rotate(angle);
+
+                // Draw Arrow
+                ctx.fillStyle = '#f1c40f';
+                ctx.shadowColor = 'black';
+                ctx.shadowBlur = 5;
+                ctx.beginPath();
+                ctx.moveTo(15, 0);
+                ctx.lineTo(-10, -10);
+                ctx.lineTo(-10, 10);
+                ctx.fill();
+                
+                // Text
+                ctx.rotate(-angle); // Reset rotation for text
+                ctx.fillStyle = 'white';
+                ctx.font = 'bold 12px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText("HOLE", 0, 25);
+
+                ctx.restore();
+            }
         }
 
         function drawGolfer() {
@@ -691,7 +784,7 @@
 
         // Init
         resize();
-        gameLoop(); // Start loop immediately for menu BG
+        gameLoop(); 
 
     </script>
 </body>
