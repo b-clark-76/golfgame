@@ -28,7 +28,7 @@
             pointer-events: none;
             color: white;
             text-shadow: 2px 2px 0 #000;
-            display: none; /* Hidden on start menu */
+            display: none;
         }
 
         h1 { margin: 0; font-size: 24px; color: #f1c40f; }
@@ -94,6 +94,48 @@
             font-weight: bold;
         }
 
+        /* Leaderboard Modal */
+        #leaderboard-modal {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: #ecf0f1;
+            color: #2c3e50;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            text-align: center;
+            display: none;
+            z-index: 200;
+            max-height: 85vh;
+            overflow-y: auto;
+            width: 90%;
+            max-width: 400px;
+        }
+
+        #leaderboard-modal h2 { margin-top: 0; color: #27ae60; }
+
+        .lb-input-group { margin: 20px 0; }
+        .lb-input { padding: 10px; border-radius: 4px; border: 1px solid #bdc3c7; width: 70%; font-size: 16px; }
+        
+        table { width: 100%; margin-top: 15px; border-collapse: collapse; background: white; border-radius: 4px; overflow: hidden; }
+        th, td { padding: 8px; border-bottom: 1px solid #bdc3c7; text-align: left; }
+        th { background: #34495e; color: white; }
+        tr:nth-child(even) { background-color: #f9f9f9; }
+        .current-user-row { background-color: #d5f5e3 !important; font-weight: bold; }
+
+        .btn-small {
+            background: #7f8c8d;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 15px;
+            font-size: 14px;
+        }
+        .btn-small:hover { background: #95a5a6; }
+
         /* In-game Messages */
         #message-area {
             position: absolute;
@@ -144,6 +186,39 @@
         </div>
     </div>
 
+    <!-- Leaderboard / Game Over Modal -->
+    <div id="leaderboard-modal">
+        <h2 id="lb-title">Course Complete!</h2>
+        <div id="lb-score-display" style="font-size: 18px; margin-bottom: 15px;"></div>
+        
+        <div id="lb-submit-section">
+            <p>Enter your name to save score:</p>
+            <div class="lb-input-group">
+                <input type="text" id="player-name" class="lb-input" placeholder="Player Name" maxlength="15">
+            </div>
+            <button class="menu-btn" onclick="submitScore()" style="font-size: 18px; padding: 10px 30px;">Submit</button>
+        </div>
+
+        <div id="lb-loading" style="display:none; color: #7f8c8d;">Loading scores...</div>
+
+        <div id="lb-table-section" style="display:none;">
+            <h3>Top Scores</h3>
+            <table id="scores-table">
+                <thead>
+                    <tr>
+                        <th>Rank</th>
+                        <th>Name</th>
+                        <th>Score</th>
+                    </tr>
+                </thead>
+                <tbody id="scores-body">
+                    <!-- Rows injected here -->
+                </tbody>
+            </table>
+            <button class="btn-small" onclick="location.reload()">Play Again</button>
+        </div>
+    </div>
+
     <!-- HUD -->
     <div id="ui-layer">
         <h1 id="course-title">Default Course</h1>
@@ -161,11 +236,135 @@
 
     <canvas id="gameCanvas"></canvas>
 
+    <!-- Firebase Logic -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
+        import { getFirestore, collection, addDoc, getDocs } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
+
+        // 1. Initialize Firebase
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        let currentUser = null;
+
+        // 2. Auth Flow
+        const initAuth = async () => {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+                await signInAnonymously(auth);
+            }
+        };
+        initAuth();
+        
+        onAuthStateChanged(auth, (user) => {
+            currentUser = user;
+        });
+
+        // 3. Expose functions to global scope for HTML buttons
+        window.submitScore = async function() {
+            if (!currentUser) return;
+            
+            const nameInput = document.getElementById('player-name');
+            const name = nameInput.value.trim() || 'Anonymous';
+            const courseId = window.activeCourse.id || window.activeCourse.name || "unknown_course";
+            
+            // UI Update
+            document.getElementById('lb-submit-section').style.display = 'none';
+            document.getElementById('lb-loading').style.display = 'block';
+
+            try {
+                // Save Score
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard'), {
+                    courseId: courseId,
+                    courseName: window.activeCourse.name,
+                    playerName: name,
+                    score: window.gameState.strokes, // Total strokes across all levels
+                    timestamp: Date.now(),
+                    userId: currentUser.uid
+                });
+                
+                // Fetch & Display Leaderboard
+                await loadLeaderboard(courseId);
+
+            } catch (e) {
+                console.error("Error saving score:", e);
+                document.getElementById('lb-loading').innerText = "Error saving score.";
+            }
+        };
+
+        window.loadLeaderboard = async function(courseId) {
+            const tableSection = document.getElementById('lb-table-section');
+            const tbody = document.getElementById('scores-body');
+            const loading = document.getElementById('lb-loading');
+            
+            loading.style.display = 'block';
+            tbody.innerHTML = ''; // Clear old
+
+            try {
+                // Fetch all scores (Rule 2: No complex queries, filter in memory)
+                const querySnapshot = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard'));
+                
+                let scores = [];
+                querySnapshot.forEach((doc) => {
+                    const data = doc.data();
+                    if (data.courseId === courseId) {
+                        scores.push(data);
+                    }
+                });
+
+                // Sort by Score (Ascending - Lower is better in golf)
+                scores.sort((a, b) => {
+                    if (a.score === b.score) return b.timestamp - a.timestamp; // Tie breaker: newer first? Or older? Let's do newer.
+                    return a.score - b.score;
+                });
+
+                // Take Top 10
+                scores = scores.slice(0, 10);
+
+                // Render
+                scores.forEach((s, index) => {
+                    const tr = document.createElement('tr');
+                    // Highlight current user's session if needed (simple check by name/score match for now)
+                    if (s.userId === currentUser.uid && s.score === window.gameState.strokes) {
+                        tr.classList.add('current-user-row');
+                    }
+                    tr.innerHTML = `
+                        <td>#${index + 1}</td>
+                        <td>${escapeHtml(s.playerName)}</td>
+                        <td>${s.score}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+
+                loading.style.display = 'none';
+                tableSection.style.display = 'block';
+
+            } catch (e) {
+                console.error("Error fetching leaderboard:", e);
+                loading.innerText = "Failed to load leaderboard.";
+            }
+        };
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+    </script>
+
+    <!-- Game Logic -->
     <script>
         /**
          * DEFAULT COURSE DATA
          */
         const defaultCourseData = {
+            id: "default_links_v1",
             name: "Default Links",
             levels: [
                 {
@@ -196,7 +395,7 @@
                         {x: 0.5, y: 0.6, w: 0.05, h: 0.3}
                     ],
                     sand: [{x: 0.7, y: 0.2, w: 0.2, h: 0.2}],
-                    water: [{x: 0.4, y: 0.8, w: 0.3, h: 0.1}]
+                    water: [{x: 0.4, y: 0.8, w: 0.3, h: 0.1 }]
                 }
             ]
         };
@@ -219,6 +418,7 @@
         const messageArea = document.getElementById('message-area');
         const messageText = document.getElementById('message-text');
         const errorMsg = document.getElementById('error-msg');
+        const lbModal = document.getElementById('leaderboard-modal');
 
         let width, height;
         let animationFrameId;
@@ -228,9 +428,9 @@
         const STOP_THRESHOLD = 0.1;
         const WALL_BOUNCE = 0.7;
 
-        // Game State
-        let activeCourse = null;
-        let gameState = {
+        // Global for access by module script
+        window.activeCourse = null;
+        window.gameState = {
             isPlaying: false,
             levelIndex: 0, 
             strokes: 0,
@@ -243,10 +443,10 @@
             camera: { x: 0, y: 0 },
 
             isDragging: false,
-            dragStartX: 0, // World coords
-            dragStartY: 0, // World coords
-            dragCurrentX: 0, // World coords
-            dragCurrentY: 0, // World coords
+            dragStartX: 0, 
+            dragStartY: 0, 
+            dragCurrentX: 0, 
+            dragCurrentY: 0, 
             
             ball: { x: 0, y: 0, vx: 0, vy: 0, radius: 8, color: '#ecf0f1', moving: false, inHole: false },
             hole: { x: 0, y: 0, radius: 12 },
@@ -264,9 +464,9 @@
             canvas.width = width;
             canvas.height = height;
             
-            if (gameState.isPlaying) {
-                if(!gameState.ball.moving) {
-                    loadLevel(gameState.levelIndex, true);
+            if (window.gameState.isPlaying) {
+                if(!window.gameState.ball.moving) {
+                    loadLevel(window.gameState.levelIndex, true);
                 }
             } else {
                 drawMenuBackground();
@@ -306,16 +506,18 @@
 
         // --- Game Flow Control ---
 
-        function startGame(customCourseData) {
-            activeCourse = customCourseData || defaultCourseData;
+        window.startGame = function(customCourseData) {
+            window.activeCourse = customCourseData || defaultCourseData;
             
             startMenu.style.display = 'none';
             uiLayer.style.display = 'block';
             controlsHint.style.display = 'block';
-            uiTitle.innerText = activeCourse.name || "Custom Course";
-            uiTotalLevels.innerText = activeCourse.levels.length;
+            lbModal.style.display = 'none';
+            
+            uiTitle.innerText = window.activeCourse.name || "Custom Course";
+            uiTotalLevels.innerText = window.activeCourse.levels.length;
 
-            gameState.isPlaying = true;
+            window.gameState.isPlaying = true;
             resize(); 
             loadLevel(0);
             
@@ -324,76 +526,79 @@
         }
 
         function loadLevel(index, preserveBall = false) {
-            if (index >= activeCourse.levels.length) {
+            if (index >= window.activeCourse.levels.length) {
                 endGame();
                 return;
             }
 
-            gameState.levelIndex = index;
-            const levelData = activeCourse.levels[index];
+            window.gameState.levelIndex = index;
+            const levelData = window.activeCourse.levels[index];
             
             // Set stats
-            gameState.par = levelData.par || 3;
+            window.gameState.par = levelData.par || 3;
             if (!preserveBall) {
-                gameState.strokes = 0;
-                gameState.ball.moving = false;
-                gameState.ball.vx = 0;
-                gameState.ball.vy = 0;
-                gameState.ball.inHole = false;
+                // Keep total strokes running, only reset move state
+                window.gameState.ball.moving = false;
+                window.gameState.ball.vx = 0;
+                window.gameState.ball.vy = 0;
+                window.gameState.ball.inHole = false;
             }
-            gameState.isDragging = false;
+            window.gameState.isDragging = false;
             
             // Camera & Scale Setup
-            gameState.levelScale = levelData.scale || 1.0;
-            gameState.worldWidth = width * gameState.levelScale;
-            gameState.worldHeight = height * gameState.levelScale;
+            window.gameState.levelScale = levelData.scale || 1.0;
+            window.gameState.worldWidth = width * window.gameState.levelScale;
+            window.gameState.worldHeight = height * window.gameState.levelScale;
             
             updateUI();
 
             // Coordinate conversion helper
-            const sx = (val) => val * gameState.worldWidth;
-            const sy = (val) => val * gameState.worldHeight;
+            const sx = (val) => val * window.gameState.worldWidth;
+            const sy = (val) => val * window.gameState.worldHeight;
 
             // Setup Objects
             if (!preserveBall) {
-                gameState.ball.x = sx(levelData.start.x);
-                gameState.ball.y = sy(levelData.start.y);
+                window.gameState.ball.x = sx(levelData.start.x);
+                window.gameState.ball.y = sy(levelData.start.y);
                 // Center camera on ball initially
-                gameState.camera.x = gameState.ball.x - width/2;
-                gameState.camera.y = gameState.ball.y - height/2;
+                window.gameState.camera.x = window.gameState.ball.x - width/2;
+                window.gameState.camera.y = window.gameState.ball.y - height/2;
             }
-            gameState.hole.x = sx(levelData.hole.x);
-            gameState.hole.y = sy(levelData.hole.y);
+            window.gameState.hole.x = sx(levelData.hole.x);
+            window.gameState.hole.y = sy(levelData.hole.y);
 
             // Clear arrays
-            gameState.walls = [];
-            gameState.water = [];
-            gameState.sand = [];
+            window.gameState.walls = [];
+            window.gameState.water = [];
+            window.gameState.sand = [];
 
             // Add standard border walls (World Borders)
-            gameState.walls.push({x: 0, y: 0, w: gameState.worldWidth, h: 20}); // Top
-            gameState.walls.push({x: 0, y: gameState.worldHeight - 20, w: gameState.worldWidth, h: 20}); // Bottom
-            gameState.walls.push({x: 0, y: 0, w: 20, h: gameState.worldHeight}); // Left
-            gameState.walls.push({x: gameState.worldWidth - 20, y: 0, w: 20, h: gameState.worldHeight}); // Right
+            window.gameState.walls.push({x: 0, y: 0, w: window.gameState.worldWidth, h: 20}); // Top
+            window.gameState.walls.push({x: 0, y: window.gameState.worldHeight - 20, w: window.gameState.worldWidth, h: 20}); // Bottom
+            window.gameState.walls.push({x: 0, y: 0, w: 20, h: window.gameState.worldHeight}); // Left
+            window.gameState.walls.push({x: window.gameState.worldWidth - 20, y: 0, w: 20, h: window.gameState.worldHeight}); // Right
 
             // Load Custom Obstacles
             if (levelData.walls) {
-                levelData.walls.forEach(w => gameState.walls.push({x: sx(w.x), y: sy(w.y), w: sx(w.w), h: sy(w.h)}));
+                levelData.walls.forEach(w => window.gameState.walls.push({x: sx(w.x), y: sy(w.y), w: sx(w.w), h: sy(w.h)}));
             }
             if (levelData.water) {
-                levelData.water.forEach(w => gameState.water.push({x: sx(w.x), y: sy(w.y), w: sx(w.w), h: sy(w.h)}));
+                levelData.water.forEach(w => window.gameState.water.push({x: sx(w.x), y: sy(w.y), w: sx(w.w), h: sy(w.h)}));
             }
             if (levelData.sand) {
-                levelData.sand.forEach(s => gameState.sand.push({x: sx(s.x), y: sy(s.y), w: sx(s.w), h: sy(s.h)}));
+                levelData.sand.forEach(s => window.gameState.sand.push({x: sx(s.x), y: sy(s.y), w: sx(s.w), h: sy(s.h)}));
             }
         }
 
         function endGame() {
-            gameState.isPlaying = false;
-            showMessage("Course Complete!");
-            setTimeout(() => {
-                location.reload(); 
-            }, 3000);
+            window.gameState.isPlaying = false;
+            
+            // Show Leaderboard Modal
+            lbModal.style.display = 'block';
+            document.getElementById('lb-score-display').innerText = `Total Strokes: ${window.gameState.strokes}`;
+            document.getElementById('lb-submit-section').style.display = 'block';
+            document.getElementById('lb-table-section').style.display = 'none';
+            document.getElementById('lb-loading').style.display = 'none';
         }
 
         // --- Inputs (Screen to World Conversion) ---
@@ -409,56 +614,55 @@
             }
             // Convert to World Coordinates
             return { 
-                x: cx + gameState.camera.x, 
-                y: cy + gameState.camera.y 
+                x: cx + window.gameState.camera.x, 
+                y: cy + window.gameState.camera.y 
             };
         }
 
         function handleStart(e) {
-            if (!gameState.isPlaying || gameState.ball.moving || gameState.ball.inHole) return;
+            if (!window.gameState.isPlaying || window.gameState.ball.moving || window.gameState.ball.inHole) return;
             const pos = getPointerPos(e);
             
-            gameState.isDragging = true;
-            // Start drag from Ball position (World)
-            gameState.dragStartX = gameState.ball.x; 
-            gameState.dragStartY = gameState.ball.y;
-            gameState.dragCurrentX = pos.x;
-            gameState.dragCurrentY = pos.y;
+            window.gameState.isDragging = true;
+            window.gameState.dragStartX = window.gameState.ball.x; 
+            window.gameState.dragStartY = window.gameState.ball.y;
+            window.gameState.dragCurrentX = pos.x;
+            window.gameState.dragCurrentY = pos.y;
             
             updateGolferAngle(pos.x, pos.y);
         }
 
         function handleMove(e) {
-            if (!gameState.isDragging) return;
+            if (!window.gameState.isDragging) return;
             const pos = getPointerPos(e);
-            gameState.dragCurrentX = pos.x;
-            gameState.dragCurrentY = pos.y;
+            window.gameState.dragCurrentX = pos.x;
+            window.gameState.dragCurrentY = pos.y;
             updateGolferAngle(pos.x, pos.y);
         }
 
         function handleEnd(e) {
-            if (!gameState.isDragging) return;
-            gameState.isDragging = false;
+            if (!window.gameState.isDragging) return;
+            window.gameState.isDragging = false;
 
-            const pullDx = gameState.dragStartX - gameState.dragCurrentX;
-            const pullDy = gameState.dragStartY - gameState.dragCurrentY;
+            const pullDx = window.gameState.dragStartX - window.gameState.dragCurrentX;
+            const pullDy = window.gameState.dragStartY - window.gameState.dragCurrentY;
             const dist = Math.sqrt(pullDx*pullDx + pullDy*pullDy);
             
             if (dist > 10) { 
                 const scale = Math.min(dist, 200) / 10;
                 const angle = Math.atan2(pullDy, pullDx);
-                gameState.ball.vx = Math.cos(angle) * scale;
-                gameState.ball.vy = Math.sin(angle) * scale;
-                gameState.ball.moving = true;
-                gameState.strokes++;
+                window.gameState.ball.vx = Math.cos(angle) * scale;
+                window.gameState.ball.vy = Math.sin(angle) * scale;
+                window.gameState.ball.moving = true;
+                window.gameState.strokes++;
                 updateUI();
             }
         }
         
         function updateGolferAngle(targetX, targetY) {
-            const dx = gameState.ball.x - targetX;
-            const dy = gameState.ball.y - targetY;
-            gameState.golferAngle = Math.atan2(dy, dx);
+            const dx = window.gameState.ball.x - targetX;
+            const dy = window.gameState.ball.y - targetY;
+            window.gameState.golferAngle = Math.atan2(dy, dx);
         }
 
         window.addEventListener('mousedown', handleStart);
@@ -472,59 +676,57 @@
 
         function update() {
             // Update Camera
-            const targetCamX = gameState.ball.x - width / 2;
-            const targetCamY = gameState.ball.y - height / 2;
+            const targetCamX = window.gameState.ball.x - width / 2;
+            const targetCamY = window.gameState.ball.y - height / 2;
             
             // Smooth follow
-            gameState.camera.x += (targetCamX - gameState.camera.x) * 0.1;
-            gameState.camera.y += (targetCamY - gameState.camera.y) * 0.1;
+            window.gameState.camera.x += (targetCamX - window.gameState.camera.x) * 0.1;
+            window.gameState.camera.y += (targetCamY - window.gameState.camera.y) * 0.1;
             
             // Clamp camera to world bounds
-            gameState.camera.x = Math.max(0, Math.min(gameState.camera.x, gameState.worldWidth - width));
-            gameState.camera.y = Math.max(0, Math.min(gameState.camera.y, gameState.worldHeight - height));
+            window.gameState.camera.x = Math.max(0, Math.min(window.gameState.camera.x, window.gameState.worldWidth - width));
+            window.gameState.camera.y = Math.max(0, Math.min(window.gameState.camera.y, window.gameState.worldHeight - height));
 
-            if (!gameState.ball.moving) return;
+            if (!window.gameState.ball.moving) return;
 
-            gameState.ball.x += gameState.ball.vx;
-            gameState.ball.y += gameState.ball.vy;
+            window.gameState.ball.x += window.gameState.ball.vx;
+            window.gameState.ball.y += window.gameState.ball.vy;
 
             let currentFriction = FRICTION;
-            let inSand = false;
             
             // Sand
-            for (let sand of gameState.sand) {
-                if (rectCircleColliding(sand, gameState.ball)) {
+            for (let sand of window.gameState.sand) {
+                if (rectCircleColliding(sand, window.gameState.ball)) {
                     currentFriction = 0.85; 
-                    inSand = true;
                 }
             }
 
-            gameState.ball.vx *= currentFriction;
-            gameState.ball.vy *= currentFriction;
+            window.gameState.ball.vx *= currentFriction;
+            window.gameState.ball.vy *= currentFriction;
 
             // Stop condition
-            if (Math.abs(gameState.ball.vx) < STOP_THRESHOLD && Math.abs(gameState.ball.vy) < STOP_THRESHOLD) {
-                gameState.ball.vx = 0; gameState.ball.vy = 0; gameState.ball.moving = false;
+            if (Math.abs(window.gameState.ball.vx) < STOP_THRESHOLD && Math.abs(window.gameState.ball.vy) < STOP_THRESHOLD) {
+                window.gameState.ball.vx = 0; window.gameState.ball.vy = 0; window.gameState.ball.moving = false;
             }
 
             // Walls
-            for (let wall of gameState.walls) resolveWallCollision(wall);
+            for (let wall of window.gameState.walls) resolveWallCollision(wall);
 
             // Water
-            for (let water of gameState.water) {
-                if (rectCircleColliding(water, gameState.ball)) {
-                    gameState.strokes++;
+            for (let water of window.gameState.water) {
+                if (rectCircleColliding(water, window.gameState.ball)) {
+                    window.gameState.strokes++;
                     showMessage("SPLASH! +1 Stroke");
-                    gameState.ball.moving = false;
+                    window.gameState.ball.moving = false;
                     setTimeout(() => {
                         // Reset to start
-                        const levelData = activeCourse.levels[gameState.levelIndex];
-                        gameState.ball.x = levelData.start.x * gameState.worldWidth;
-                        gameState.ball.y = levelData.start.y * gameState.worldHeight;
-                        gameState.ball.vx = 0;
-                        gameState.ball.vy = 0;
-                        gameState.camera.x = gameState.ball.x - width/2;
-                        gameState.camera.y = gameState.ball.y - height/2;
+                        const levelData = window.activeCourse.levels[window.gameState.levelIndex];
+                        window.gameState.ball.x = levelData.start.x * window.gameState.worldWidth;
+                        window.gameState.ball.y = levelData.start.y * window.gameState.worldHeight;
+                        window.gameState.ball.vx = 0;
+                        window.gameState.ball.vy = 0;
+                        window.gameState.camera.x = window.gameState.ball.x - width/2;
+                        window.gameState.camera.y = window.gameState.ball.y - height/2;
                         updateUI();
                         hideMessage();
                     }, 1000);
@@ -533,17 +735,17 @@
             }
 
             // Hole
-            const dx = gameState.ball.x - gameState.hole.x;
-            const dy = gameState.ball.y - gameState.hole.y;
+            const dx = window.gameState.ball.x - window.gameState.hole.x;
+            const dy = window.gameState.ball.y - window.gameState.hole.y;
             const dist = Math.sqrt(dx*dx + dy*dy);
 
-            if (dist < gameState.hole.radius) {
-                const speed = Math.sqrt(gameState.ball.vx*gameState.ball.vx + gameState.ball.vy*gameState.ball.vy);
+            if (dist < window.gameState.hole.radius) {
+                const speed = Math.sqrt(window.gameState.ball.vx*window.gameState.ball.vx + window.gameState.ball.vy*window.gameState.ball.vy);
                 if (speed < 12) {
-                    gameState.ball.inHole = true;
-                    gameState.ball.moving = false;
-                    gameState.ball.x = gameState.hole.x;
-                    gameState.ball.y = gameState.hole.y;
+                    window.gameState.ball.inHole = true;
+                    window.gameState.ball.moving = false;
+                    window.gameState.ball.x = window.gameState.hole.x;
+                    window.gameState.ball.y = window.gameState.hole.y;
                     levelComplete();
                 }
             }
@@ -562,36 +764,36 @@
         }
 
         function resolveWallCollision(wall) {
-            if (gameState.ball.x + gameState.ball.radius > wall.x &&
-                gameState.ball.x - gameState.ball.radius < wall.x + wall.w &&
-                gameState.ball.y + gameState.ball.radius > wall.y &&
-                gameState.ball.y - gameState.ball.radius < wall.y + wall.h) {
+            if (window.gameState.ball.x + window.gameState.ball.radius > wall.x &&
+                window.gameState.ball.x - window.gameState.ball.radius < wall.x + wall.w &&
+                window.gameState.ball.y + window.gameState.ball.radius > wall.y &&
+                window.gameState.ball.y - window.gameState.ball.radius < wall.y + wall.h) {
                 
-                const closestX = Math.max(wall.x, Math.min(gameState.ball.x, wall.x + wall.w));
-                const closestY = Math.max(wall.y, Math.min(gameState.ball.y, wall.y + wall.h));
-                const dx = gameState.ball.x - closestX;
-                const dy = gameState.ball.y - closestY;
+                const closestX = Math.max(wall.x, Math.min(window.gameState.ball.x, wall.x + wall.w));
+                const closestY = Math.max(wall.y, Math.min(window.gameState.ball.y, wall.y + wall.h));
+                const dx = window.gameState.ball.x - closestX;
+                const dy = window.gameState.ball.y - closestY;
 
                 if (Math.abs(dx) > Math.abs(dy)) {
-                    gameState.ball.vx *= -WALL_BOUNCE;
-                    if (dx > 0) gameState.ball.x = wall.x + wall.w + gameState.ball.radius;
-                    else gameState.ball.x = wall.x - gameState.ball.radius;
+                    window.gameState.ball.vx *= -WALL_BOUNCE;
+                    if (dx > 0) window.gameState.ball.x = wall.x + wall.w + window.gameState.ball.radius;
+                    else window.gameState.ball.x = wall.x - window.gameState.ball.radius;
                 } else {
-                    gameState.ball.vy *= -WALL_BOUNCE;
-                    if (dy > 0) gameState.ball.y = wall.y + wall.h + gameState.ball.radius;
-                    else gameState.ball.y = wall.y - gameState.ball.radius;
+                    window.gameState.ball.vy *= -WALL_BOUNCE;
+                    if (dy > 0) window.gameState.ball.y = wall.y + wall.h + window.gameState.ball.radius;
+                    else window.gameState.ball.y = wall.y - window.gameState.ball.radius;
                 }
             }
         }
 
         function levelComplete() {
             let msg = "Level Complete!";
-            if (gameState.strokes === 1) msg = "HOLE IN ONE!";
-            else if (gameState.strokes <= gameState.par) msg = "Under Par!";
+            if (window.gameState.strokes === 1) msg = "HOLE IN ONE!";
+            else if (window.gameState.strokes <= window.gameState.par) msg = "Under Par!";
             showMessage(msg);
             setTimeout(() => {
                 hideMessage();
-                loadLevel(gameState.levelIndex + 1);
+                loadLevel(window.gameState.levelIndex + 1);
             }, 2000);
         }
 
@@ -605,9 +807,9 @@
         }
 
         function updateUI() {
-            uiStrokes.innerText = gameState.strokes;
-            uiLevel.innerText = gameState.levelIndex + 1;
-            uiPar.innerText = gameState.par;
+            uiStrokes.innerText = window.gameState.strokes;
+            uiLevel.innerText = window.gameState.levelIndex + 1;
+            uiPar.innerText = window.gameState.par;
         }
 
         // --- Rendering ---
@@ -627,28 +829,28 @@
         }
 
         function draw() {
-            if (!gameState.isPlaying) {
+            if (!window.gameState.isPlaying) {
                 drawMenuBackground();
                 return;
             }
 
             // Save context and apply Camera Translate
             ctx.save();
-            ctx.translate(-gameState.camera.x, -gameState.camera.y);
+            ctx.translate(-window.gameState.camera.x, -window.gameState.camera.y);
 
             // Grass (Draw world size)
             ctx.fillStyle = '#27ae60';
-            ctx.fillRect(0, 0, gameState.worldWidth, gameState.worldHeight);
+            ctx.fillRect(0, 0, window.gameState.worldWidth, window.gameState.worldHeight);
 
             // Grid
             ctx.strokeStyle = 'rgba(0,0,0,0.05)';
             ctx.lineWidth = 1;
-            for(let x=0; x<gameState.worldWidth; x+=40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,gameState.worldHeight); ctx.stroke(); }
-            for(let y=0; y<gameState.worldHeight; y+=40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(gameState.worldWidth,y); ctx.stroke(); }
+            for(let x=0; x<window.gameState.worldWidth; x+=40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,window.gameState.worldHeight); ctx.stroke(); }
+            for(let y=0; y<window.gameState.worldHeight; y+=40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(window.gameState.worldWidth,y); ctx.stroke(); }
 
             // Obstacles
             ctx.fillStyle = '#f1c40f';
-            for (let sand of gameState.sand) {
+            for (let sand of window.gameState.sand) {
                 ctx.fillRect(sand.x, sand.y, sand.w, sand.h);
                 ctx.fillStyle = 'rgba(0,0,0,0.1)';
                 for(let i=0; i<5; i++) {
@@ -658,10 +860,10 @@
             }
 
             ctx.fillStyle = '#3498db';
-            for (let water of gameState.water) ctx.fillRect(water.x, water.y, water.w, water.h);
+            for (let water of window.gameState.water) ctx.fillRect(water.x, water.y, water.w, water.h);
 
             ctx.fillStyle = '#7f8c8d';
-            for (let wall of gameState.walls) {
+            for (let wall of window.gameState.walls) {
                 ctx.fillRect(wall.x, wall.y, wall.w, wall.h);
                 ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.fillRect(wall.x, wall.y, wall.w, 5);
                 ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(wall.x, wall.y + wall.h - 5, wall.w, 5);
@@ -670,29 +872,29 @@
 
             // Hole
             ctx.fillStyle = '#2c3e50';
-            ctx.beginPath(); ctx.arc(gameState.hole.x, gameState.hole.y, gameState.hole.radius, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(window.gameState.hole.x, window.gameState.hole.y, window.gameState.hole.radius, 0, Math.PI * 2); ctx.fill();
 
             // Ball
-            if (!gameState.ball.inHole) {
+            if (!window.gameState.ball.inHole) {
                 ctx.fillStyle = 'rgba(0,0,0,0.3)';
-                ctx.beginPath(); ctx.arc(gameState.ball.x + 2, gameState.ball.y + 2, gameState.ball.radius, 0, Math.PI * 2); ctx.fill();
-                ctx.fillStyle = gameState.ball.color;
-                ctx.beginPath(); ctx.arc(gameState.ball.x, gameState.ball.y, gameState.ball.radius, 0, Math.PI * 2); ctx.fill();
+                ctx.beginPath(); ctx.arc(window.gameState.ball.x + 2, window.gameState.ball.y + 2, window.gameState.ball.radius, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = window.gameState.ball.color;
+                ctx.beginPath(); ctx.arc(window.gameState.ball.x, window.gameState.ball.y, window.gameState.ball.radius, 0, Math.PI * 2); ctx.fill();
             }
 
             // Golfer
-            if (!gameState.ball.moving && !gameState.ball.inHole) drawGolfer();
+            if (!window.gameState.ball.moving && !window.gameState.ball.inHole) drawGolfer();
 
             // Aim Line
-            if (gameState.isDragging && !gameState.ball.moving) {
-                let dx = gameState.ball.x - gameState.dragCurrentX;
-                let dy = gameState.ball.y - gameState.dragCurrentY;
+            if (window.gameState.isDragging && !window.gameState.ball.moving) {
+                let dx = window.gameState.ball.x - window.gameState.dragCurrentX;
+                let dy = window.gameState.ball.y - window.gameState.dragCurrentY;
                 let dist = Math.sqrt(dx*dx + dy*dy);
                 let angle = Math.atan2(dy, dx);
                 let power = Math.min(dist, 200);
 
                 ctx.save();
-                ctx.translate(gameState.ball.x, gameState.ball.y);
+                ctx.translate(window.gameState.ball.x, window.gameState.ball.y);
                 ctx.rotate(angle);
                 ctx.strokeStyle = 'white';
                 ctx.lineWidth = 3;
@@ -712,8 +914,8 @@
 
         function drawOffscreenIndicator() {
             // Check if hole is visible
-            const holeScreenX = gameState.hole.x - gameState.camera.x;
-            const holeScreenY = gameState.hole.y - gameState.camera.y;
+            const holeScreenX = window.gameState.hole.x - window.gameState.camera.x;
+            const holeScreenY = window.gameState.hole.y - window.gameState.camera.y;
 
             const margin = 30;
             const isOffscreen = 
@@ -762,12 +964,12 @@
 
         function drawGolfer() {
             const offsetDist = 25;
-            const gx = gameState.ball.x - Math.cos(gameState.golferAngle) * offsetDist;
-            const gy = gameState.ball.y - Math.sin(gameState.golferAngle) * offsetDist;
+            const gx = window.gameState.ball.x - Math.cos(window.gameState.golferAngle) * offsetDist;
+            const gy = window.gameState.ball.y - Math.sin(window.gameState.golferAngle) * offsetDist;
 
             ctx.save();
             ctx.translate(gx, gy);
-            ctx.rotate(gameState.golferAngle);
+            ctx.rotate(window.gameState.golferAngle);
 
             ctx.fillStyle = '#e74c3c'; ctx.beginPath(); ctx.ellipse(0, 0, 10, 18, 0, 0, Math.PI * 2); ctx.fill();
             ctx.fillStyle = '#f1c40f'; ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.fill();
@@ -777,7 +979,7 @@
         }
 
         function gameLoop() {
-            if (gameState.isPlaying) update();
+            if (window.gameState.isPlaying) update();
             draw();
             animationFrameId = requestAnimationFrame(gameLoop);
         }
