@@ -3,902 +3,685 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Pixel Golf: 64 Tour</title>
+    <title>Retro Mini Golf</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@500;900&display=swap');
-
-        :root {
-            --bg-color: #1a1a1a;
-            --console-color: #2b2b2b;
-            --accent-color: #ffaa00;
-        }
-
-        body {
+        body, html {
             margin: 0;
             padding: 0;
-            background-color: var(--bg-color);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            overflow: hidden;
-            font-family: 'Roboto', sans-serif;
-            touch-action: none;
-            color: #fff;
-        }
-
-        #game-wrapper {
-            position: relative;
             width: 100%;
-            max-width: 800px;
-            aspect-ratio: 4/3;
-            background: var(--console-color);
-            padding: 8px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.6);
-            border-radius: 12px;
+            height: 100%;
+            overflow: hidden;
+            background-color: #2c3e50;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            touch-action: none; /* Prevent browser zooming/scrolling */
         }
 
         canvas {
             display: block;
-            width: 100%;
-            height: 100%;
-            background-color: #1e3a14; /* Deep Rough Base */
-            border-radius: 4px;
-            /* No pixelation! Smooth graphics */
-            image-rendering: auto; 
         }
 
         #ui-layer {
             position: absolute;
             top: 20px;
             left: 20px;
-            right: 20px;
             pointer-events: none;
-            display: flex;
-            justify-content: space-between;
-            text-transform: uppercase;
-            font-weight: 900;
-            text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
-            letter-spacing: 1px;
+            color: white;
+            text-shadow: 2px 2px 0 #000;
         }
 
-        .stat-badge {
-            background: linear-gradient(180deg, rgba(40,40,40,0.9) 0%, rgba(20,20,20,0.9) 100%);
-            padding: 10px 15px;
-            border-radius: 20px;
-            border: 2px solid rgba(255,255,255,0.1);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-            min-width: 80px;
+        h1 {
+            margin: 0;
+            font-size: 24px;
+            color: #f1c40f;
         }
 
-        .stat-label { font-size: 10px; color: #aaa; margin-bottom: 4px; }
-        .stat-value { font-size: 16px; color: #fff; }
-        .stat-value.highlight { color: var(--accent-color); }
+        p {
+            margin: 5px 0 0 0;
+            font-size: 16px;
+        }
 
-        #terrain-pill {
+        #message-area {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.5s;
+        }
+
+        #message-area.visible {
+            opacity: 1;
+        }
+
+        .message-text {
+            font-size: 48px;
+            font-weight: bold;
+            color: #fff;
+            text-shadow: 3px 3px 0 #27ae60;
+            background: rgba(0,0,0,0.5);
+            padding: 20px 40px;
+            border-radius: 10px;
+        }
+
+        #controls-hint {
             position: absolute;
             bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0,0,0,0.7);
-            color: #fff;
-            padding: 8px 20px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: bold;
-            border: 1px solid rgba(255,255,255,0.2);
-            transition: color 0.2s, background 0.2s;
-        }
-
-        #overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
             width: 100%;
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            background: rgba(0, 0, 0, 0.6);
-            backdrop-filter: blur(4px);
-            opacity: 0;
+            text-align: center;
+            color: rgba(255, 255, 255, 0.7);
             pointer-events: none;
-            transition: opacity 0.3s;
-            z-index: 10;
-            border-radius: 4px;
-        }
-
-        #overlay.visible { opacity: 1; pointer-events: auto; }
-
-        h1 { 
-            margin: 0 0 10px 0; 
-            color: #fff; 
-            font-size: 32px; 
-            font-weight: 900;
-            text-shadow: 0 4px 0 rgba(0,0,0,0.4);
-            letter-spacing: -1px;
-            font-style: italic;
-        }
-        
-        h2 { margin: 0 0 30px 0; font-size: 14px; color: #ccc; font-weight: 500; }
-
-        button {
-            background: linear-gradient(135deg, #e63946 0%, #c1121f 100%);
-            border: none;
-            color: #fff;
-            font-family: inherit;
-            padding: 12px 40px;
             font-size: 14px;
-            font-weight: 900;
-            cursor: pointer;
-            border-radius: 30px;
-            box-shadow: 0 4px 15px rgba(230, 57, 70, 0.4);
-            transition: transform 0.1s, box-shadow 0.1s;
-            text-transform: uppercase;
         }
-        
-        button:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(230, 57, 70, 0.6); }
-        button:active { transform: translateY(1px); box-shadow: 0 2px 10px rgba(230, 57, 70, 0.4); }
     </style>
 </head>
 <body>
 
-<div id="game-wrapper">
     <div id="ui-layer">
-        <div class="stat-badge">
-            <span class="stat-label">HOLE</span>
-            <span class="stat-value" id="hole-val">1</span>
-        </div>
-        <div class="stat-badge">
-            <span class="stat-label">PAR</span>
-            <span class="stat-value" id="par-val">4</span>
-        </div>
-        <div class="stat-badge">
-            <span class="stat-label">SHOTS</span>
-            <span class="stat-value highlight" id="shot-val">0</span>
-        </div>
+        <h1>Retro Mini Golf</h1>
+        <p>Par: <span id="par-display">3</span></p>
+        <p>Strokes: <span id="strokes-display">0</span></p>
+        <p>Level: <span id="level-display">1</span></p>
     </div>
-    
-    <div id="terrain-pill">TEE BOX</div>
 
-    <!-- Scaled canvas for higher resolution -->
-    <canvas id="gameCanvas" width="640" height="480"></canvas>
-
-    <div id="overlay">
-        <h1 id="ov-title">GOLF 64</h1>
-        <h2 id="ov-desc">DRAG TO SHOOT</h2>
-        <button id="ov-btn">TEE OFF</button>
+    <div id="message-area">
+        <div id="message-text" class="message-text">Hole in One!</div>
     </div>
-</div>
 
-<script>
-/**
- * PIXEL GOLF 64 ENGINE
- * Improvements: High-res canvas, Gradient Textures, Particles, Smooth Shadows
- */
+    <div id="controls-hint">Drag anywhere to aim and shoot</div>
 
-// --- Assets & Constants ---
-// Using functions to generate gradients/patterns dynamically
-const PALETTE = {
-    rough: '#2d4c1e',
-    fairway: '#4d8a2f',
-    green: '#83b349',
-    sand: '#d2b48c',
-    water: '#3b86ff',
-    waterDark: '#2659b0',
-};
+    <canvas id="gameCanvas"></canvas>
 
-const TERRAIN = {
-    ROUGH: { friction: 0.85, drag: 0.9, name: "DEEP ROUGH", color: '#2d4c1e' },
-    FAIRWAY: { friction: 0.96, drag: 0.1, name: "FAIRWAY", color: '#4d8a2f' },
-    GREEN: { friction: 0.98, drag: 0.0, name: "GREEN", color: '#83b349' },
-    TEE: { friction: 0.96, drag: 0.0, name: "TEE BOX", color: '#4d8a2f' },
-    SAND: { friction: 0.75, drag: 2.5, name: "BUNKER", color: '#e6ccb2' },
-    WATER: { friction: 0.50, drag: 0.0, name: "WATER HAZARD", color: '#4cc9f0' },
-    OB: { friction: 0.5, drag: 0, name: "OUT OF BOUNDS", color: '#222' }
-};
+    <script>
+        /**
+         * Game Configuration and State
+         */
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const uiStrokes = document.getElementById('strokes-display');
+        const uiLevel = document.getElementById('level-display');
+        const uiPar = document.getElementById('par-display');
+        const messageArea = document.getElementById('message-area');
+        const messageText = document.getElementById('message-text');
 
-const PHYSICS = {
-    gravity: 0.15,
-    bounceDamp: 0.5, 
-    groundBounceThreshold: 0.5,
-    maxPower: 8.0,
-    launchAngle: 0.28, 
-    ballRadius: 2.5, // Slightly larger visual
-    holeRadius: 4.5
-};
-
-// --- Game State ---
-const state = {
-    screen: 'MENU', 
-    levelIdx: 0,
-    strokes: 0,
-    par: 4,
-    
-    ball: { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, lastStableX: 0, lastStableY: 0 },
-    player: { x: 0, y: 0, angle: 0, frame: 0, swingTimer: 0 },
-    drag: { active: false, startX: 0, startY: 0, currX: 0, currY: 0 },
-    
-    // Visuals
-    cam: { x: 0, y: 0 },
-    shake: 0,
-    particles: [], // Array of particle objects
-    decorations: [], // Array of trees/rocks
-    patterns: {} // Store generated textures
-};
-
-// --- Level Data ---
-// Logic coordinates are 320x240, rendered at 2x scale
-const levels = [
-    {
-        par: 3,
-        start: { x: 40, y: 120 },
-        hole: { x: 280, y: 120 },
-        zones: [
-            { type: 'FAIRWAY', x: 30, y: 100, w: 200, h: 40 },
-            { type: 'GREEN', x: 260, y: 100, w: 50, h: 40 },
-            { type: 'SAND', x: 150, y: 80, w: 30, h: 20 },
-            { type: 'SAND', x: 150, y: 140, w: 30, h: 20 },
-            { type: 'SAND', x: 240, y: 90, w: 20, h: 60 }
-        ]
-    },
-    {
-        par: 4,
-        start: { x: 40, y: 200 },
-        hole: { x: 280, y: 40 },
-        zones: [
-            { type: 'FAIRWAY', x: 30, y: 150, w: 60, h: 60 },
-            { type: 'FAIRWAY', x: 80, y: 50, w: 140, h: 160 },
-            { type: 'GREEN', x: 260, y: 30, w: 50, h: 50 },
-            { type: 'WATER', x: 120, y: 120, w: 60, h: 60 },
-            { type: 'SAND', x: 240, y: 40, w: 20, h: 40 }
-        ]
-    },
-    {
-        par: 5,
-        start: { x: 20, y: 120 },
-        hole: { x: 300, y: 120 },
-        zones: [
-            { type: 'FAIRWAY', x: 20, y: 100, w: 240, h: 40 },
-            { type: 'GREEN', x: 280, y: 100, w: 40, h: 40 },
-            { type: 'WATER', x: 270, y: 90, w: 60, h: 60 },
-            { type: 'SAND', x: 100, y: 85, w: 40, h: 15 },
-            { type: 'SAND', x: 160, y: 140, w: 40, h: 15 }
-        ]
-    }
-];
-
-// --- Initialization ---
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
-// Note: Canvas width/height is 640/480, but logic assumes 320/240.
-// We will scale the context drawing, but not the logic.
-const LOGIC_SCALE = 1; 
-const DRAW_SCALE = 2; // Double resolution
-
-const uiHole = document.getElementById('hole-val');
-const uiPar = document.getElementById('par-val');
-const uiShot = document.getElementById('shot-val');
-const uiTerrain = document.getElementById('terrain-pill');
-const overlay = document.getElementById('overlay');
-
-// Generate Textures
-function createNoisePattern(baseColor, alpha = 0.05) {
-    const pCanvas = document.createElement('canvas');
-    pCanvas.width = 64; pCanvas.height = 64;
-    const pCtx = pCanvas.getContext('2d');
-    
-    // Fill base
-    pCtx.fillStyle = baseColor;
-    pCtx.fillRect(0,0,64,64);
-    
-    // Add noise
-    for(let i=0; i<400; i++) {
-        pCtx.fillStyle = `rgba(255,255,255,${Math.random() * alpha})`;
-        pCtx.fillRect(Math.random()*64, Math.random()*64, 2, 2);
-        pCtx.fillStyle = `rgba(0,0,0,${Math.random() * alpha})`;
-        pCtx.fillRect(Math.random()*64, Math.random()*64, 2, 2);
-    }
-    return ctx.createPattern(pCanvas, 'repeat');
-}
-
-// Pre-generate patterns
-state.patterns.rough = createNoisePattern(TERRAIN.ROUGH.color, 0.1);
-state.patterns.fairway = createNoisePattern(TERRAIN.FAIRWAY.color, 0.05);
-state.patterns.green = createNoisePattern(TERRAIN.GREEN.color, 0.03);
-state.patterns.sand = createNoisePattern(TERRAIN.SAND.color, 0.15);
-
-// --- Input Listeners ---
-function getPos(e) {
-    const r = canvas.getBoundingClientRect();
-    const x = e.touches ? e.touches[0].clientX : e.clientX;
-    const y = e.touches ? e.touches[0].clientY : e.clientY;
-    
-    // Convert screen coordinates to LOGIC coordinates (0-320)
-    return {
-        x: ((x - r.left) * (canvas.width / r.width)) / DRAW_SCALE,
-        y: ((y - r.top) * (canvas.height / r.height)) / DRAW_SCALE
-    };
-}
-
-canvas.addEventListener('mousedown', startDrag);
-canvas.addEventListener('touchstart', (e) => { e.preventDefault(); startDrag(e); }, {passive: false});
-window.addEventListener('mousemove', moveDrag);
-window.addEventListener('touchmove', (e) => { e.preventDefault(); moveDrag(e); }, {passive: false});
-window.addEventListener('mouseup', endDrag);
-window.addEventListener('touchend', endDrag);
-
-document.getElementById('ov-btn').addEventListener('click', () => {
-    if (state.screen === 'MENU' || state.screen === 'OVER') startGame();
-    else if (state.screen === 'HOLED') nextLevel();
-});
-
-// --- Logic ---
-
-function startGame() {
-    state.levelIdx = 0;
-    loadLevel();
-}
-
-function nextLevel() {
-    state.levelIdx++;
-    if (state.levelIdx >= levels.length) {
-        showOverlay('CHAMPION!', 'COURSE RECORD SET', 'PLAY AGAIN');
-        state.screen = 'OVER';
-        return;
-    }
-    loadLevel();
-}
-
-function loadLevel() {
-    const lvl = levels[state.levelIdx];
-    state.ball.x = lvl.start.x;
-    state.ball.y = lvl.start.y;
-    state.ball.z = 0;
-    state.ball.vx = 0; state.ball.vy = 0; state.ball.vz = 0;
-    state.ball.lastStableX = lvl.start.x;
-    state.ball.lastStableY = lvl.start.y;
-    state.strokes = 0;
-    state.par = lvl.par;
-    state.screen = 'PLAY';
-    state.particles = [];
-    
-    // Generate decorations (Trees in the rough)
-    generateDecorations(lvl);
-    
-    placePlayer();
-    updateUI();
-    overlay.classList.remove('visible');
-}
-
-function generateDecorations(lvl) {
-    state.decorations = [];
-    // Try to place 30 trees randomly
-    for(let i=0; i<30; i++) {
-        const tx = Math.random() * 320;
-        const ty = Math.random() * 240;
+        let width, height;
         
-        // Check if inside a zone
-        let safe = true;
-        for (let z of lvl.zones) {
-            if (tx > z.x - 5 && tx < z.x + z.w + 5 && ty > z.y - 5 && ty < z.y + z.h + 5) {
-                safe = false; break;
-            }
-        }
-        // Don't spawn on start or hole
-        if (Math.hypot(tx - lvl.start.x, ty - lvl.start.y) < 20) safe = false;
-        if (Math.hypot(tx - lvl.hole.x, ty - lvl.hole.y) < 20) safe = false;
-        
-        if (safe) {
-            state.decorations.push({ x: tx, y: ty, r: 4 + Math.random() * 4 });
-        }
-    }
-}
+        // Physics constants
+        const FRICTION = 0.97;
+        const STOP_THRESHOLD = 0.1;
+        const MAX_POWER = 15;
+        const WALL_BOUNCE = 0.7;
 
-function placePlayer() {
-    state.player.x = state.ball.x - 8;
-    state.player.y = state.ball.y + 6;
-    state.player.frame = 0;
-}
-
-// --- Input Handling ---
-
-function startDrag(e) {
-    if (state.screen !== 'PLAY') return;
-    const p = getPos(e);
-    const dist = Math.hypot(p.x - state.ball.x, p.y - state.ball.y);
-    if (dist < 40) {
-        state.drag.active = true;
-        state.drag.startX = state.ball.x;
-        state.drag.startY = state.ball.y;
-        state.drag.currX = p.x;
-        state.drag.currY = p.y;
-    }
-}
-
-function moveDrag(e) {
-    if (!state.drag.active) return;
-    const p = getPos(e);
-    state.drag.currX = p.x;
-    state.drag.currY = p.y;
-    
-    const dx = state.drag.startX - state.drag.currX;
-    const dy = state.drag.startY - state.drag.currY;
-    state.player.angle = Math.atan2(dy, dx);
-}
-
-function endDrag() {
-    if (!state.drag.active) return;
-    state.drag.active = false;
-    
-    const dx = state.drag.startX - state.drag.currX;
-    const dy = state.drag.startY - state.drag.currY;
-    const power = Math.min(Math.hypot(dx, dy) / 10, PHYSICS.maxPower);
-    
-    if (power > 0.5) {
-        state.screen = 'SWINGING';
-        state.player.swingTimer = 0;
-        state.shotData = {
-            vx: Math.cos(state.player.angle) * power,
-            vy: Math.sin(state.player.angle) * power,
-            vz: power * PHYSICS.launchAngle
+        // Game State
+        let gameState = {
+            level: 1,
+            strokes: 0,
+            par: 3,
+            isDragging: false,
+            dragStartX: 0,
+            dragStartY: 0,
+            dragCurrentX: 0,
+            dragCurrentY: 0,
+            ball: {
+                x: 0, y: 0, vx: 0, vy: 0, radius: 8, color: '#ecf0f1', moving: false, inHole: false
+            },
+            hole: {
+                x: 0, y: 0, radius: 12
+            },
+            walls: [], // Array of rects {x, y, w, h}
+            water: [], // Array of rects
+            sand: [],  // Array of rects
+            golferAngle: 0
         };
-    }
-}
 
-// --- Particles System ---
-function spawnParticles(x, y, color, count, speed) {
-    for(let i=0; i<count; i++) {
-        state.particles.push({
-            x: x, y: y, z: 0,
-            vx: (Math.random() - 0.5) * speed,
-            vy: (Math.random() - 0.5) * speed,
-            vz: Math.random() * speed,
-            life: 1.0,
-            color: color
-        });
-    }
-}
-
-function updateParticles() {
-    for(let i = state.particles.length - 1; i >= 0; i--) {
-        let p = state.particles[i];
-        p.x += p.vx;
-        p.y += p.vy;
-        p.z += p.vz;
-        p.vz -= 0.1; // gravity
-        if (p.z < 0) p.z = 0;
-        
-        p.life -= 0.05;
-        if (p.life <= 0) state.particles.splice(i, 1);
-    }
-}
-
-// --- Game Loop ---
-
-function update() {
-    const lvl = levels[state.levelIdx];
-    updateParticles();
-    
-    // 1. Swing State
-    if (state.screen === 'SWINGING') {
-        state.player.swingTimer += 0.1;
-        if (state.player.swingTimer < 0.5) state.player.frame = 1; 
-        else if (state.player.swingTimer < 0.8) state.player.frame = 2; 
-        else if (state.player.swingTimer < 1.5) {
-            if (state.player.frame === 2) launchBall();
-            state.player.frame = 3; 
-        } else {
-            state.player.frame = 0;
-        }
-    }
-    
-    // 2. Flight State
-    if (state.screen === 'FLYING') {
-        let b = state.ball;
-        b.x += b.vx; b.y += b.vy; b.z += b.vz;
-        b.vz -= PHYSICS.gravity;
-        
-        const terrain = getTerrainAt(b.x, b.y);
-        
-        // Ground Collision
-        if (b.z <= 0) {
-            b.z = 0;
-            if (terrain.type === 'WATER') {
-                playSound('splash');
-                spawnParticles(b.x, b.y, '#fff', 20, 2);
-                resetBallToSafety();
-                return;
-            }
-
-            if (Math.abs(b.vz) > PHYSICS.groundBounceThreshold) {
-                b.vz = -b.vz * PHYSICS.bounceDamp;
-                b.vx *= terrain.props.friction;
-                b.vy *= terrain.props.friction;
-                playSound('land');
-                spawnParticles(b.x, b.y, '#555', 5, 1); // Dirt puff
-            } else {
-                b.vz = 0;
-                b.vx *= terrain.props.friction;
-                b.vy *= terrain.props.friction;
-                
-                // Rolling trail
-                if (Math.random() > 0.8 && terrain.type === 'SAND') {
-                    spawnParticles(b.x, b.y, '#d2b48c', 1, 0.2);
-                }
-
-                if (Math.abs(b.vx) < 0.05 && Math.abs(b.vy) < 0.05) {
-                    b.vx = 0; b.vy = 0;
-                    endShot();
-                }
-            }
-        }
-        
-        // Hole Logic
-        if (b.z < 2) {
-            const distToHole = Math.hypot(b.x - lvl.hole.x, b.y - lvl.hole.y);
-            if (distToHole < PHYSICS.holeRadius) {
-                if (Math.hypot(b.vx, b.vy) < 2.0) {
-                    playSound('cup');
-                    spawnParticles(b.x, b.y, '#ffd700', 15, 3); // Confetti
-                    b.x = lvl.hole.x; b.y = lvl.hole.y;
-                    b.vx = 0; b.vy = 0;
-                    state.screen = 'HOLED';
-                    handleHoleOut();
-                }
-            }
-        }
-        
-        if (b.x < 0 || b.x > 320 || b.y < 0 || b.y > 240) {
-            if (b.z <= 0) resetBallToSafety();
-        }
-        
-        const t = getTerrainAt(b.x, b.y);
-        uiTerrain.innerText = t.props.name;
-        uiTerrain.style.background = t.type === 'WATER' || t.type === 'ROUGH' ? 'rgba(200,0,0,0.8)' : 'rgba(0,0,0,0.7)';
-    }
-    
-    if (state.shake > 0) state.shake *= 0.9;
-}
-
-function launchBall() {
-    state.ball.vx = state.shotData.vx;
-    state.ball.vy = state.shotData.vy;
-    state.ball.vz = state.shotData.vz;
-    const terrain = getTerrainAt(state.ball.x, state.ball.y);
-    const pen = (1.0 - terrain.props.drag); 
-    state.ball.vx *= (0.5 + 0.5 * pen);
-    state.ball.vy *= (0.5 + 0.5 * pen);
-    
-    // Divot particles
-    spawnParticles(state.ball.x, state.ball.y, terrain.props.color, 10, 1.5);
-    
-    state.strokes++;
-    state.screen = 'FLYING';
-    state.ball.lastStableX = state.ball.x;
-    state.ball.lastStableY = state.ball.y;
-    playSound('hit');
-    updateUI();
-}
-
-function endShot() {
-    state.screen = 'PLAY';
-    placePlayer();
-    updateUI();
-}
-
-function resetBallToSafety() {
-    state.ball.x = state.ball.lastStableX;
-    state.ball.y = state.ball.lastStableY;
-    state.ball.vx = 0; state.ball.vy = 0; state.ball.z = 0;
-    state.strokes++; 
-    endShot();
-    state.shake = 5;
-    updateUI();
-}
-
-function handleHoleOut() {
-    const diff = state.strokes - state.par;
-    let txt = "PAR";
-    if (diff <= -2) txt = "EAGLE";
-    else if (diff === -1) txt = "BIRDIE";
-    else if (diff === 0) txt = "PAR";
-    else if (diff === 1) txt = "BOGEY";
-    else txt = "DOUBLE BOGEY";
-    if (state.strokes === 1) txt = "HOLE IN ONE!";
-    showOverlay(txt, `HOLE COMPLETE IN ${state.strokes}`, "NEXT HOLE");
-}
-
-function updateUI() {
-    uiHole.innerText = state.levelIdx + 1;
-    uiPar.innerText = state.par;
-    uiShot.innerText = state.strokes;
-}
-
-function showOverlay(title, desc, btn) {
-    document.getElementById('ov-title').innerText = title;
-    document.getElementById('ov-desc').innerText = desc;
-    document.getElementById('ov-btn').innerText = btn;
-    overlay.classList.add('visible');
-}
-
-function getTerrainAt(x, y) {
-    const lvl = levels[state.levelIdx];
-    for (let i = lvl.zones.length - 1; i >= 0; i--) {
-        const z = lvl.zones[i];
-        if (x >= z.x && x <= z.x + z.w && y >= z.y && y <= z.y + z.h) {
-            return { type: z.type, props: TERRAIN[z.type] };
-        }
-    }
-    return { type: 'ROUGH', props: TERRAIN.ROUGH };
-}
-
-// --- Rendering ---
-
-function draw() {
-    // Apply Logic Scaling (Double Resolution)
-    // We clear with the real dimensions
-    ctx.resetTransform();
-    ctx.clearRect(0,0, canvas.width, canvas.height);
-    
-    // Now scale everything by 2x to match 320x240 logic coords to 640x480 canvas
-    ctx.scale(DRAW_SCALE, DRAW_SCALE);
-
-    const lvl = levels[state.levelIdx];
-    if (!lvl) return;
-    
-    let sx = (Math.random() - 0.5) * state.shake;
-    let sy = (Math.random() - 0.5) * state.shake;
-    ctx.translate(sx, sy);
-
-    // 1. Draw Base (Rough)
-    ctx.fillStyle = state.patterns.rough;
-    ctx.fillRect(0, 0, 320, 240);
-
-    // 2. Draw Decorations (Trees) - Bottom Layer (behind fairway?)
-    // Actually trees usually sit on top. Let's draw zones first.
-    
-    // 3. Draw Zones
-    lvl.zones.forEach(z => {
-        // Shadow for elevation effect
-        ctx.fillStyle = 'rgba(0,0,0,0.2)';
-        ctx.fillRect(z.x + 2, z.y + 2, z.w, z.h);
-
-        let pat = state.patterns[z.type.toLowerCase()];
-        
-        if (z.type === 'WATER') {
-            ctx.fillStyle = TERRAIN.WATER.color;
-            ctx.fillRect(z.x, z.y, z.w, z.h);
-            // Dynamic Water Glint
-            ctx.fillStyle = 'rgba(255,255,255,0.1)';
-            const t = Date.now() / 800;
-            ctx.beginPath();
-            ctx.moveTo(z.x, z.y + z.h/2);
-            for(let i=0; i<=z.w; i+=5) {
-                ctx.lineTo(z.x + i, z.y + z.h/2 + Math.sin(t + i*0.1) * 5);
-            }
-            ctx.lineTo(z.x + z.w, z.y + z.h);
-            ctx.lineTo(z.x, z.y + z.h);
-            ctx.fill();
-        } else {
-            ctx.fillStyle = pat || '#000';
-            ctx.fillRect(z.x, z.y, z.w, z.h);
+        /**
+         * Initialization and Resizing
+         */
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
             
-            // Add gradient overlay for "mound" look
-            if (z.type === 'GREEN') {
-                let g = ctx.createRadialGradient(z.x + z.w/2, z.y + z.h/2, 2, z.x + z.w/2, z.y + z.h/2, z.w/1.5);
-                g.addColorStop(0, 'rgba(255,255,255,0.1)');
-                g.addColorStop(1, 'rgba(0,0,0,0.0)');
-                ctx.fillStyle = g;
-                ctx.fillRect(z.x, z.y, z.w, z.h);
+            // If the ball is off-screen (e.g. after a resize), reset it to center
+            if (gameState.ball.x < 0 || gameState.ball.x > width || gameState.ball.y < 0 || gameState.ball.y > height) {
+                resetLevel(gameState.level);
             }
         }
-    });
 
-    // 4. Draw Trees (Decorations)
-    state.decorations.forEach(d => {
-        // Shadow
-        ctx.fillStyle = 'rgba(0,0,0,0.3)';
-        ctx.beginPath();
-        ctx.ellipse(d.x + 2, d.y + 4, d.r, d.r/2, 0, 0, Math.PI*2);
-        ctx.fill();
+        window.addEventListener('resize', resize);
+
+        function initGame() {
+            resize();
+            resetLevel(1);
+            requestAnimationFrame(gameLoop);
+        }
+
+        /**
+         * Level Generation
+         */
+        function resetLevel(level) {
+            gameState.level = level;
+            gameState.strokes = 0;
+            gameState.ball.moving = false;
+            gameState.ball.vx = 0;
+            gameState.ball.vy = 0;
+            gameState.ball.inHole = false;
+            gameState.isDragging = false;
+            
+            updateUI();
+
+            // Responsive Level Layout
+            const padding = Math.min(width, height) * 0.1;
+            const playableWidth = width - padding * 2;
+            const playableHeight = height - padding * 2;
+
+            // Clear previous obstacles
+            gameState.walls = [];
+            gameState.water = [];
+            gameState.sand = [];
+
+            // Standard border walls
+            gameState.walls.push({x: 0, y: 0, w: width, h: 20}); // Top
+            gameState.walls.push({x: 0, y: height - 20, w: width, h: 20}); // Bottom
+            gameState.walls.push({x: 0, y: 0, w: 20, h: height}); // Left
+            gameState.walls.push({x: width - 20, y: 0, w: 20, h: height}); // Right
+
+            // Set Start and Hole positions based on level
+            if (level === 1) {
+                // Straight shot
+                gameState.par = 2;
+                gameState.ball.x = width * 0.2;
+                gameState.ball.y = height * 0.5;
+                gameState.hole.x = width * 0.8;
+                gameState.hole.y = height * 0.5;
+
+                // Simple obstacle
+                gameState.sand.push({
+                    x: width * 0.4, 
+                    y: height * 0.3, 
+                    w: width * 0.2, 
+                    h: height * 0.4
+                });
+
+            } else if (level === 2) {
+                // Dogleg
+                gameState.par = 3;
+                gameState.ball.x = width * 0.15;
+                gameState.ball.y = height * 0.8;
+                gameState.hole.x = width * 0.85;
+                gameState.hole.y = height * 0.2;
+
+                // Walls to force a corner
+                gameState.walls.push({
+                    x: width * 0.4,
+                    y: height * 0.4,
+                    w: width * 0.6,
+                    h: 20
+                });
+
+                gameState.water.push({
+                    x: width * 0.6,
+                    y: height * 0.6,
+                    w: 80,
+                    h: 80
+                });
+            } else if (level === 3) {
+                // Narrow pass
+                gameState.par = 4;
+                gameState.ball.x = width * 0.5;
+                gameState.ball.y = height * 0.9;
+                gameState.hole.x = width * 0.5;
+                gameState.hole.y = height * 0.1;
+
+                // Center block
+                gameState.walls.push({
+                    x: width * 0.3,
+                    y: height * 0.4,
+                    w: width * 0.4,
+                    h: 40
+                });
+                
+                // Side water
+                gameState.water.push({x: 0, y: height * 0.4, w: width * 0.2, h: 40});
+                gameState.water.push({x: width * 0.8, y: height * 0.4, w: width * 0.2, h: 40});
+
+            } else {
+                // Loop back to level 1 for now (infinite loop)
+                resetLevel(1);
+            }
+            updateUI();
+        }
+
+        /**
+         * Input Handling
+         */
+        function getPointerPos(e) {
+            if (e.touches) {
+                return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            }
+            return { x: e.clientX, y: e.clientY };
+        }
+
+        function handleStart(e) {
+            if (gameState.ball.moving || gameState.ball.inHole) return;
+            
+            const pos = getPointerPos(e);
+            gameState.isDragging = true;
+            gameState.dragStartX = gameState.ball.x; // Drag relative to ball
+            gameState.dragStartY = gameState.ball.y;
+            gameState.dragCurrentX = pos.x;
+            gameState.dragCurrentY = pos.y;
+            
+            // Initial angle calculation for golfer rotation
+            updateGolferAngle(pos.x, pos.y);
+        }
+
+        function handleMove(e) {
+            if (!gameState.isDragging) return;
+            const pos = getPointerPos(e);
+            gameState.dragCurrentX = pos.x;
+            gameState.dragCurrentY = pos.y;
+            
+            updateGolferAngle(pos.x, pos.y);
+        }
+
+        function handleEnd(e) {
+            if (!gameState.isDragging) return;
+            gameState.isDragging = false;
+
+            // Calculate vector from touch point to ball (pull back to shoot)
+            // Logic: Dragging away from ball creates a vector towards the ball
+            // Actually standard angry-birds style: Drag back -> Shoot forward
+            
+            // Calculate vector from mouse to ball
+            let dx = gameState.ball.x - gameState.dragCurrentX;
+            let dy = gameState.ball.y - gameState.dragCurrentY;
+
+            // If we drag from arbitrary screen point, we need the delta
+            // Let's simplify: Input vector is simply (Start - Current)
+            // But we set StartX to BallX for simplicity in handleStart. 
+            // However, touch drag feels better if start is where you touch.
+            
+            // Let's use simple distance based on drag start vs drag end, applied to ball direction
+            // But visually, we are drawing a line from ball.
+            // Let's assume the user touched the ball (or near it) and dragged back.
+            
+            // Re-calc based on visual "pull string" logic
+            // Vector is (Ball Position - Mouse Position)
+            // If mouse is to the left of ball, vector is positive X (shoot right)
+            
+            // We need to support dragging anywhere on screen though for mobile friendliness
+            // So:
+            // Vector = (dragStartX - dragCurrentX, dragStartY - dragCurrentY)
+            // But centered on the ball
+            
+            // Actually, let's just stick to: Vector = Ball - Mouse (Assuming mouse acts as the pull point)
+            // For "Drag Anywhere":
+            // We need the delta from the start of the drag.
+            
+            // Vector magnitude
+            const pullDx = gameState.dragStartX - gameState.dragCurrentX; // Dragging left (negative) produces positive force (right)
+            const pullDy = gameState.dragStartY - gameState.dragCurrentY;
+            
+            // Apply power limit
+            const dist = Math.sqrt(pullDx*pullDx + pullDy*pullDy);
+            
+            if (dist > 10) { // Minimum threshold to shoot
+                const scale = Math.min(dist, 200) / 10; // Cap power
+                
+                const angle = Math.atan2(pullDy, pullDx);
+                
+                gameState.ball.vx = Math.cos(angle) * scale;
+                gameState.ball.vy = Math.sin(angle) * scale;
+                gameState.ball.moving = true;
+                gameState.strokes++;
+                updateUI();
+                
+                // Play swing sound (optional, kept silent for template)
+            }
+        }
         
-        // Tree Top
-        let g = ctx.createRadialGradient(d.x - 2, d.y - 4, 1, d.x, d.y, d.r);
-        g.addColorStop(0, '#4d8a2f');
-        g.addColorStop(1, '#1e3a14');
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(d.x, d.y, d.r, 0, Math.PI*2);
-        ctx.fill();
-    });
-    
-    // 5. Hole
-    ctx.shadowColor = 'rgba(0,0,0,0.5)';
-    ctx.shadowBlur = 4;
-    ctx.fillStyle = '#111';
-    ctx.beginPath();
-    ctx.arc(lvl.hole.x, lvl.hole.y, PHYSICS.holeRadius, 0, Math.PI*2);
-    ctx.fill();
-    ctx.shadowBlur = 0; // Reset
-    
-    // Flag
-    ctx.strokeStyle = '#eee';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(lvl.hole.x, lvl.hole.y);
-    ctx.lineTo(lvl.hole.x, lvl.hole.y - 20);
-    ctx.stroke();
-    ctx.fillStyle = '#ff3333';
-    ctx.beginPath();
-    ctx.moveTo(lvl.hole.x, lvl.hole.y - 20);
-    ctx.lineTo(lvl.hole.x + 10, lvl.hole.y - 16);
-    ctx.lineTo(lvl.hole.x, lvl.hole.y - 12);
-    ctx.fill();
+        function updateGolferAngle(targetX, targetY) {
+            // Golfer faces the direction we are aiming
+            // If dragging, we aim opposite to the drag
+            const dx = gameState.ball.x - targetX;
+            const dy = gameState.ball.y - targetY;
+            gameState.golferAngle = Math.atan2(dy, dx);
+        }
 
-    // 6. Particles
-    state.particles.forEach(p => {
-        ctx.fillStyle = p.color;
-        ctx.globalAlpha = p.life;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y - p.z, 1.5, 0, Math.PI*2);
-        ctx.fill();
-        ctx.globalAlpha = 1.0;
-    });
-
-    // 7. Player
-    if (state.screen === 'PLAY' || state.screen === 'SWINGING') {
-        drawPlayer(state.player.x, state.player.y, state.player.angle, state.player.frame);
-    }
-    
-    // 8. Aim Line (Smooth with gradient)
-    if (state.drag.active && state.screen === 'PLAY') {
-        ctx.save();
-        ctx.translate(state.ball.x, state.ball.y);
-        const dx = state.drag.startX - state.drag.currX;
-        const dy = state.drag.startY - state.drag.currY;
-        const dist = Math.hypot(dx, dy);
-        const scale = Math.min(dist, 100) / dist || 0;
-        const lx = dx * scale * 0.6;
-        const ly = dy * scale * 0.6;
+        window.addEventListener('mousedown', handleStart);
+        window.addEventListener('mousemove', handleMove);
+        window.addEventListener('mouseup', handleEnd);
         
-        let grad = ctx.createLinearGradient(0, 0, lx, ly);
-        grad.addColorStop(0, 'rgba(255,255,255,0.8)');
-        grad.addColorStop(1, 'rgba(255,255,255,0)');
-        
-        ctx.strokeStyle = grad;
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.lineTo(lx, ly);
-        ctx.stroke();
-        
-        // Power Ring
-        ctx.strokeStyle = dist > 50 ? '#ff3333' : '#ffcc00';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(lx, ly, 4, 0, Math.PI*2);
-        ctx.stroke();
-        ctx.restore();
-    }
-    
-    // 9. Ball (3D Sphere)
-    // Shadow
-    ctx.fillStyle = 'rgba(0,0,0,0.3)';
-    ctx.beginPath();
-    // Shadow gets smaller as ball goes higher
-    const shadowSize = Math.max(0.5, PHYSICS.ballRadius - (state.ball.z / 20));
-    ctx.ellipse(state.ball.x, state.ball.y + 1, shadowSize * 1.5, shadowSize, 0, 0, Math.PI*2);
-    ctx.fill();
-    
-    // Sphere
-    const by = state.ball.y - state.ball.z;
-    let bg = ctx.createRadialGradient(state.ball.x - 1, by - 1, 0.5, state.ball.x, by, PHYSICS.ballRadius);
-    bg.addColorStop(0, '#ffffff');
-    bg.addColorStop(1, '#cccccc');
-    
-    ctx.fillStyle = bg;
-    ctx.beginPath();
-    ctx.arc(state.ball.x, by, PHYSICS.ballRadius, 0, Math.PI*2);
-    ctx.fill();
-}
+        window.addEventListener('touchstart', handleStart, {passive: false});
+        window.addEventListener('touchmove', (e) => { e.preventDefault(); handleMove(e); }, {passive: false});
+        window.addEventListener('touchend', handleEnd);
 
-function drawPlayer(x, y, angle, frame) {
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(angle);
-    
-    // Modern stylized player (Geometric)
-    // Shoulders
-    ctx.fillStyle = '#d62828';
-    ctx.beginPath();
-    ctx.ellipse(0, 0, 5, 3, 0, 0, Math.PI*2);
-    ctx.fill();
-    
-    // Head (Cap)
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(0, 0, 2.5, 0, Math.PI*2);
-    ctx.fill();
-    ctx.fillStyle = '#222'; // Bill of cap
-    ctx.fillRect(1, -2, 3, 4);
+        /**
+         * Physics Engine
+         */
+        function update() {
+            if (!gameState.ball.moving) return;
 
-    // Hands/Club
-    ctx.fillStyle = '#ddd';
-    if (frame === 1) { ctx.rotate(-1.5); } // Back
-    if (frame === 3) { ctx.rotate(2.0); } // Follow
-    
-    // Arms
-    ctx.fillStyle = '#f77f00'; // Skin
-    ctx.beginPath();
-    ctx.arc(3, 0, 1.5, 0, Math.PI*2);
-    ctx.fill();
-    
-    // Club shaft
-    ctx.fillStyle = '#aaa';
-    ctx.fillRect(3, -0.5, 8, 1);
-    // Club head
-    ctx.fillStyle = '#555';
-    ctx.fillRect(11, -1.5, 2, 3);
-    
-    ctx.restore();
-}
+            // Apply Velocity
+            gameState.ball.x += gameState.ball.vx;
+            gameState.ball.y += gameState.ball.vy;
 
-// --- Audio ---
-const AudioContext = window.AudioContext || window.webkitAudioContext;
-const actx = new AudioContext();
-function playSound(type) {
-    if (actx.state === 'suspended') actx.resume();
-    const osc = actx.createOscillator();
-    const g = actx.createGain();
-    osc.connect(g);
-    g.connect(actx.destination);
-    
-    const t = actx.currentTime;
-    
-    if (type === 'hit') {
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(120, t);
-        osc.frequency.exponentialRampToValueAtTime(10, t+0.15);
-        g.gain.setValueAtTime(0.2, t);
-        g.gain.exponentialRampToValueAtTime(0.01, t+0.15);
-        osc.start(t); osc.stop(t+0.15);
-    } else if (type === 'land') {
-        osc.type = 'triangle'; // Softer thud
-        osc.frequency.setValueAtTime(60, t);
-        osc.frequency.linearRampToValueAtTime(20, t+0.1);
-        g.gain.setValueAtTime(0.2, t);
-        g.gain.exponentialRampToValueAtTime(0.01, t+0.1);
-        osc.start(t); osc.stop(t+0.1);
-    } else if (type === 'cup') {
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(1200, t);
-        osc.frequency.exponentialRampToValueAtTime(800, t+0.1);
-        g.gain.setValueAtTime(0.1, t);
-        g.gain.exponentialRampToValueAtTime(0.01, t+0.5);
-        osc.start(t); osc.stop(t+0.5);
-    } else if (type === 'splash') {
-        // Noise buffer for splash would be better, but oscillating saw works for retro
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(300, t);
-        osc.frequency.linearRampToValueAtTime(50, t+0.4);
-        g.gain.setValueAtTime(0.1, t);
-        g.gain.linearRampToValueAtTime(0, t+0.4);
-        osc.start(t); osc.stop(t+0.4);
-    }
-}
+            // Apply Friction
+            let currentFriction = FRICTION;
 
-function loop() {
-    update();
-    draw();
-    requestAnimationFrame(loop);
-}
-loop();
+            // Check Sand Traps
+            let inSand = false;
+            for (let sand of gameState.sand) {
+                if (rectCircleColliding(sand, gameState.ball)) {
+                    currentFriction = 0.85; // Heavy friction
+                    inSand = true;
+                }
+            }
 
-</script>
+            gameState.ball.vx *= currentFriction;
+            gameState.ball.vy *= currentFriction;
+
+            // Stop if too slow
+            if (Math.abs(gameState.ball.vx) < STOP_THRESHOLD && Math.abs(gameState.ball.vy) < STOP_THRESHOLD) {
+                gameState.ball.vx = 0;
+                gameState.ball.vy = 0;
+                gameState.ball.moving = false;
+            }
+
+            // Wall Collisions
+            for (let wall of gameState.walls) {
+                resolveWallCollision(wall);
+            }
+
+            // Water Hazards
+            for (let water of gameState.water) {
+                if (rectCircleColliding(water, gameState.ball)) {
+                    // Reset ball to start of level (penalty)
+                    gameState.strokes++;
+                    showMessage("SPLASH! +1 Stroke");
+                    gameState.ball.moving = false;
+                    setTimeout(() => {
+                        // Reset to rough start area
+                        if (gameState.level === 1) {
+                            gameState.ball.x = width * 0.2; gameState.ball.y = height * 0.5;
+                        } else if (gameState.level === 2) {
+                            gameState.ball.x = width * 0.15; gameState.ball.y = height * 0.8;
+                        } else {
+                            gameState.ball.x = width * 0.5; gameState.ball.y = height * 0.9;
+                        }
+                        gameState.ball.vx = 0;
+                        gameState.ball.vy = 0;
+                        updateUI();
+                    }, 1000);
+                    return; 
+                }
+            }
+
+            // Hole Collision
+            const dx = gameState.ball.x - gameState.hole.x;
+            const dy = gameState.ball.y - gameState.hole.y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+
+            if (dist < gameState.hole.radius) {
+                // Determine success based on speed
+                const speed = Math.sqrt(gameState.ball.vx*gameState.ball.vx + gameState.ball.vy*gameState.ball.vy);
+                if (speed < 10) { // Can't go in if too fast
+                    gameState.ball.inHole = true;
+                    gameState.ball.moving = false;
+                    gameState.ball.x = gameState.hole.x;
+                    gameState.ball.y = gameState.hole.y;
+                    levelComplete();
+                }
+            }
+        }
+
+        function rectCircleColliding(rect, circle) {
+            const distX = Math.abs(circle.x - rect.x - rect.w / 2);
+            const distY = Math.abs(circle.y - rect.y - rect.h / 2);
+
+            if (distX > (rect.w / 2 + circle.radius)) { return false; }
+            if (distY > (rect.h / 2 + circle.radius)) { return false; }
+
+            if (distX <= (rect.w / 2)) { return true; } 
+            if (distY <= (rect.h / 2)) { return true; }
+
+            const dx = distX - rect.w / 2;
+            const dy = distY - rect.h / 2;
+            return (dx * dx + dy * dy <= (circle.radius * circle.radius));
+        }
+
+        function resolveWallCollision(wall) {
+            // Simple AABB collision response (imperfect for corners but good for walls)
+            // Check if inside expanded bounding box
+            if (gameState.ball.x + gameState.ball.radius > wall.x &&
+                gameState.ball.x - gameState.ball.radius < wall.x + wall.w &&
+                gameState.ball.y + gameState.ball.radius > wall.y &&
+                gameState.ball.y - gameState.ball.radius < wall.y + wall.h) {
+                
+                // Determine side of collision
+                // Find closest point on rect to circle center
+                const closestX = Math.max(wall.x, Math.min(gameState.ball.x, wall.x + wall.w));
+                const closestY = Math.max(wall.y, Math.min(gameState.ball.y, wall.y + wall.h));
+
+                const dx = gameState.ball.x - closestX;
+                const dy = gameState.ball.y - closestY;
+
+                if (Math.abs(dx) > Math.abs(dy)) {
+                    // Hit vertical side
+                    gameState.ball.vx *= -WALL_BOUNCE;
+                    // Push out
+                    if (dx > 0) gameState.ball.x = wall.x + wall.w + gameState.ball.radius;
+                    else gameState.ball.x = wall.x - gameState.ball.radius;
+                } else {
+                    // Hit horizontal side
+                    gameState.ball.vy *= -WALL_BOUNCE;
+                    // Push out
+                    if (dy > 0) gameState.ball.y = wall.y + wall.h + gameState.ball.radius;
+                    else gameState.ball.y = wall.y - gameState.ball.radius;
+                }
+            }
+        }
+
+        function levelComplete() {
+            let msg = "Level Complete!";
+            if (gameState.strokes === 1) msg = "HOLE IN ONE!";
+            else if (gameState.strokes <= gameState.par) msg = "Under Par!";
+            
+            showMessage(msg);
+            
+            setTimeout(() => {
+                resetLevel(gameState.level + 1);
+                hideMessage();
+            }, 2000);
+        }
+
+        function showMessage(text) {
+            messageText.innerText = text;
+            messageArea.classList.add('visible');
+        }
+
+        function hideMessage() {
+            messageArea.classList.remove('visible');
+        }
+
+        function updateUI() {
+            uiStrokes.innerText = gameState.strokes;
+            uiLevel.innerText = gameState.level;
+            uiPar.innerText = gameState.par;
+        }
+
+        /**
+         * Rendering
+         */
+        function draw() {
+            // Background (Grass)
+            ctx.fillStyle = '#27ae60';
+            ctx.fillRect(0, 0, width, height);
+
+            // Draw Pattern (Grid)
+            ctx.strokeStyle = 'rgba(0,0,0,0.05)';
+            ctx.lineWidth = 1;
+            const gridSize = 40;
+            for(let x=0; x<width; x+=gridSize) {
+                ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,height); ctx.stroke();
+            }
+            for(let y=0; y<height; y+=gridSize) {
+                ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(width,y); ctx.stroke();
+            }
+
+            // Draw Sand
+            ctx.fillStyle = '#f1c40f';
+            for (let sand of gameState.sand) {
+                ctx.fillRect(sand.x, sand.y, sand.w, sand.h);
+                // Texture
+                ctx.fillStyle = 'rgba(0,0,0,0.1)';
+                for(let i=0; i<10; i++) {
+                     ctx.beginPath();
+                     ctx.arc(sand.x + Math.random()*sand.w, sand.y + Math.random()*sand.h, 2, 0, Math.PI*2);
+                     ctx.fill();
+                }
+                ctx.fillStyle = '#f1c40f'; // Reset
+            }
+
+            // Draw Water
+            ctx.fillStyle = '#3498db';
+            for (let water of gameState.water) {
+                ctx.fillRect(water.x, water.y, water.w, water.h);
+            }
+
+            // Draw Walls
+            ctx.fillStyle = '#7f8c8d';
+            for (let wall of gameState.walls) {
+                ctx.fillRect(wall.x, wall.y, wall.w, wall.h);
+                // 3D effect bevel
+                ctx.fillStyle = 'rgba(255,255,255,0.3)';
+                ctx.fillRect(wall.x, wall.y, wall.w, 5); // Top highlight
+                ctx.fillStyle = 'rgba(0,0,0,0.3)';
+                ctx.fillRect(wall.x, wall.y + wall.h - 5, wall.w, 5); // Bottom shadow
+                ctx.fillStyle = '#7f8c8d'; // Reset
+            }
+
+            // Draw Hole
+            ctx.fillStyle = '#2c3e50';
+            ctx.beginPath();
+            ctx.arc(gameState.hole.x, gameState.hole.y, gameState.hole.radius, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Draw Ball
+            if (!gameState.ball.inHole) {
+                // Shadow
+                ctx.fillStyle = 'rgba(0,0,0,0.3)';
+                ctx.beginPath();
+                ctx.arc(gameState.ball.x + 2, gameState.ball.y + 2, gameState.ball.radius, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Ball
+                ctx.fillStyle = gameState.ball.color;
+                ctx.beginPath();
+                ctx.arc(gameState.ball.x, gameState.ball.y, gameState.ball.radius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Draw Golfer (Only when idle)
+            if (!gameState.ball.moving && !gameState.ball.inHole) {
+                drawGolfer();
+            }
+
+            // Draw Aim Line
+            if (gameState.isDragging && !gameState.ball.moving) {
+                // We draw the line from the ball, opposite to the mouse
+                // Vector Mouse -> Ball
+                let dx = gameState.ball.x - gameState.dragCurrentX;
+                let dy = gameState.ball.y - gameState.dragCurrentY;
+                
+                // Same logic as shoot force
+                let dist = Math.sqrt(dx*dx + dy*dy);
+                let angle = Math.atan2(dy, dx);
+                let power = Math.min(dist, 200);
+
+                ctx.save();
+                ctx.translate(gameState.ball.x, gameState.ball.y);
+                ctx.rotate(angle);
+
+                // Dotted line
+                ctx.strokeStyle = 'white';
+                ctx.lineWidth = 3;
+                ctx.setLineDash([5, 5]);
+                ctx.beginPath();
+                ctx.moveTo(10, 0); // Start slightly away from ball
+                ctx.lineTo(power, 0);
+                ctx.stroke();
+
+                // Arrow head
+                ctx.fillStyle = 'white';
+                ctx.beginPath();
+                ctx.moveTo(power, 0);
+                ctx.lineTo(power - 10, -5);
+                ctx.lineTo(power - 10, 5);
+                ctx.fill();
+
+                ctx.restore();
+            }
+        }
+
+        function drawGolfer() {
+            // A simple top-down golfer
+            // Positioned near the ball, rotated by golferAngle
+            
+            const offsetDist = 25;
+            const gx = gameState.ball.x - Math.cos(gameState.golferAngle) * offsetDist;
+            const gy = gameState.ball.y - Math.sin(gameState.golferAngle) * offsetDist;
+
+            ctx.save();
+            ctx.translate(gx, gy);
+            ctx.rotate(gameState.golferAngle);
+
+            // Shoulders
+            ctx.fillStyle = '#e74c3c'; // Red shirt
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 10, 18, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Head
+            ctx.fillStyle = '#f1c40f'; // Yellow hat/hair
+            ctx.beginPath();
+            ctx.arc(0, 0, 8, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Putter (Line pointing to ball)
+            ctx.strokeStyle = '#95a5a6'; // Metal
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(5, 5); // Right hand area
+            ctx.lineTo(offsetDist - 5, 0); // Towards ball
+            ctx.stroke();
+            
+            // Putter head
+            ctx.strokeStyle = '#34495e';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(offsetDist - 5, -5);
+            ctx.lineTo(offsetDist - 5, 5);
+            ctx.stroke();
+
+            ctx.restore();
+        }
+
+        /**
+         * Game Loop
+         */
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Start
+        initGame();
+
+    </script>
 </body>
 </html>
