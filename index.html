@@ -62,11 +62,12 @@
             left: 20px;
             display: flex;
             gap: 10px;
-            z-index: 10;
+            z-index: 20; /* Higher than canvas */
             background: rgba(0,0,0,0.6);
             padding: 10px;
             border-radius: 12px;
-            display: none; /* Hidden on menu */
+            display: none; 
+            pointer-events: auto; /* Ensure clicks register */
         }
 
         .club-btn {
@@ -281,11 +282,13 @@
             ]
         };
 
+        // Clubs Configuration
+        // MaxDist is roughly pixels of travel at full power
         const CLUBS = [
-            { name: "Driver", icon: "🏌️", maxDist: 350, minDist: 150, flight: true, color: "#e74c3c" },
-            { name: "Iron", icon: "🏸", maxDist: 200, minDist: 50, flight: true, color: "#e67e22" },
-            { name: "Wedge", icon: "⚒️", maxDist: 100, minDist: 10, flight: true, color: "#f1c40f" },
-            { name: "Putter", icon: "⛳", maxDist: 40, minDist: 0, flight: false, color: "#2ecc71" }
+            { name: "Driver", icon: "🏌️", maxDist: 400, minDist: 150, flight: true, color: "#e74c3c" },
+            { name: "Iron", icon: "🏸", maxDist: 250, minDist: 50, flight: true, color: "#e67e22" },
+            { name: "Wedge", icon: "⚒️", maxDist: 120, minDist: 10, flight: true, color: "#f1c40f" },
+            { name: "Putter", icon: "⛳", maxDist: 60, minDist: 0, flight: false, color: "#2ecc71" }
         ];
 
         /**
@@ -363,9 +366,7 @@
             canvas.width = width;
             canvas.height = height;
             
-            if (window.gameState.isPlaying && window.gameState.ball.state === 'idle') {
-                // Recalculate camera clamp logic if needed
-            } else if (!window.gameState.isPlaying) {
+            if (!window.gameState.isPlaying) {
                 drawMenuBackground();
             }
         }
@@ -429,6 +430,8 @@
             window.gameState.ball.vz = 0;
             window.gameState.ball.z = 0;
             window.gameState.isDragging = false;
+            
+            // Fix: Force putting mode off immediately
             window.gameState.isPutting = false;
             
             // Scale Setup
@@ -436,7 +439,7 @@
             window.gameState.worldWidth = width * window.gameState.levelScale;
             window.gameState.worldHeight = height * window.gameState.levelScale;
             
-            // Reset Camera
+            // Reset Camera Instantly
             window.gameState.camera.targetZoom = 1.0;
             window.gameState.camera.zoom = 1.0;
             
@@ -478,7 +481,7 @@
             loadRects(levelData.water, window.gameState.water);
             loadRects(levelData.sand, window.gameState.sand);
 
-            determineLie();
+            determineLie(); // Check initial position
         }
 
         function endGame() {
@@ -502,9 +505,17 @@
                     <div class="club-name">${club.name}</div>
                     <div class="club-dist">${club.minDist}-${club.maxDist}y</div>
                 `;
-                btn.onclick = () => selectClub(index);
+                // Prevent click propagation to canvas
+                btn.onmousedown = (e) => e.stopPropagation();
+                btn.ontouchstart = (e) => e.stopPropagation();
+                btn.onclick = (e) => {
+                    e.stopPropagation();
+                    selectClub(index);
+                };
                 clubSelector.appendChild(btn);
             });
+            // Highlight default
+            selectClub(window.gameState.selectedClubIdx);
         }
 
         function selectClub(index) {
@@ -530,9 +541,6 @@
             if (e.touches) { cx = e.touches[0].clientX; cy = e.touches[0].clientY; } 
             else { cx = e.clientX; cy = e.clientY; }
             
-            // Inverse Camera Transform
-            // ScreenX = (WorldX - CamX) * Zoom + Width/2
-            // WorldX = (ScreenX - Width/2) / Zoom + CamX
             const zoom = window.gameState.camera.zoom;
             return { 
                 x: (cx - width/2) / zoom + window.gameState.camera.x, 
@@ -541,6 +549,9 @@
         }
 
         function handleStart(e) {
+            // Only interact if touching canvas
+            if (e.target.id !== 'gameCanvas') return;
+            
             if (!window.gameState.isPlaying || window.gameState.ball.state !== 'idle') return;
             const pos = getPointerPos(e);
             
@@ -571,26 +582,32 @@
             
             const club = CLUBS[window.gameState.selectedClubIdx];
             
-            // Scale drag pixel distance to "Power"
-            // Let's say 200px drag = Max Power of club
-            let powerRatio = Math.min(dist, 200) / 200; 
-
             // Club Min/Max enforcement
-            // If drag is tiny, ignore
             if (dist < 10) return;
 
-            // Calculate Force
-            // Max speed based on club maxDist. 
-            // Arbitrary physics scaling: 15 speed = ~300y
+            // Scale drag: 200px drag = 100% power
+            let powerRatio = Math.min(dist, 200) / 200; 
+            
+            // Physics Speed Calculation
+            // Scale arbitrary units. 
+            // Max club dist -> Speed unit. 
+            // 20.0 speed ~= 400 yards visual distance approximately
             const maxSpeed = club.maxDist / 20; 
             let speed = maxSpeed * powerRatio;
 
-            // Enforce Min Power for non-putters (can't hit driver 2 feet)
+            // Enforce Min Power
             const minSpeed = club.minDist / 20;
             if (speed < minSpeed) speed = minSpeed;
 
-            const angle = Math.atan2(pullDy, pullDx);
+            let angle = Math.atan2(pullDy, pullDx);
             
+            // Add Uncertainty (Mishit logic)
+            // +/- 5 degrees deviation
+            // Reduced for Putter to +/- 1 degree to keep it playable
+            const uncertaintyRange = window.gameState.isPutting ? 1 : 5;
+            const deviation = (Math.random() - 0.5) * 2 * (uncertaintyRange * Math.PI / 180);
+            angle += deviation;
+
             // Set Velocity
             window.gameState.ball.vx = Math.cos(angle) * speed;
             window.gameState.ball.vy = Math.sin(angle) * speed;
@@ -598,9 +615,7 @@
             // Z-Axis Launch
             if (club.flight) {
                 window.gameState.ball.state = 'flying';
-                // Loft: Wedge has high vz, Driver low vz relative to forward speed
-                // Simplified: Vz is proportional to speed for arc
-                window.gameState.ball.vz = speed * 0.5; 
+                window.gameState.ball.vz = speed * 0.5; // Launch angle/height
             } else {
                 window.gameState.ball.state = 'rolling';
                 window.gameState.ball.vz = 0;
@@ -620,7 +635,11 @@
         window.addEventListener('mousemove', handleMove);
         window.addEventListener('mouseup', handleEnd);
         window.addEventListener('touchstart', handleStart, {passive: false});
-        window.addEventListener('touchmove', (e) => { e.preventDefault(); handleMove(e); }, {passive: false});
+        window.addEventListener('touchmove', (e) => { 
+            // Prevent default only if dragging on canvas to allow scrolling elsewhere if needed
+            if(e.target.id === 'gameCanvas') e.preventDefault(); 
+            handleMove(e); 
+        }, {passive: false});
         window.addEventListener('touchend', handleEnd);
 
         // --- Physics & Camera ---
@@ -637,14 +656,6 @@
             cam.x += (targetCamX - cam.x) * 0.1;
             cam.y += (targetCamY - cam.y) * 0.1;
 
-            // Clamp Camera
-            // We want screen center to not go too far out of bounds if possible
-            // Viewport w/h in world units
-            const vpW = width / cam.zoom;
-            const vpH = height / cam.zoom;
-            
-            // Simple center lock is fine for now, standard golf cam behavior
-            
             const ball = window.gameState.ball;
             if (ball.state === 'idle') return;
 
@@ -662,36 +673,24 @@
                     ball.z = 0;
                     // Bounce?
                     if (Math.abs(ball.vz) > 2) {
-                        ball.vz *= -0.4; // Bounciness
-                        ball.vx *= 0.7; // Friction on impact
-                        ball.vy *= 0.7;
+                        ball.vz *= -0.4; 
+                        ball.vx *= 0.6; 
+                        ball.vy *= 0.6;
                     } else {
                         ball.state = 'rolling';
                         ball.vz = 0;
-                        checkHazardsOnLand(); // Splash if in water immediately
+                        checkHazardsOnLand(); 
                     }
                 }
             } 
             
             // 3. Rolling Physics
             if (ball.state === 'rolling') {
-                // Apply Friction based on Lie
-                let friction = FRICTION_ROUGH; // Default Rough
-                
-                // Check Fairway
-                for(let f of window.gameState.fairways) {
-                    if(rectCircleColliding(f, ball)) friction = FRICTION_FAIRWAY;
-                }
-                // Check Green
-                for(let g of window.gameState.greens) {
-                    if(rectCircleColliding(g, ball)) friction = FRICTION_GREEN;
-                }
-                // Check Sand
-                for(let s of window.gameState.sand) {
-                    if(rectCircleColliding(s, ball)) friction = FRICTION_SAND;
-                }
-                
-                // Check Water (Fatal)
+                // Determine Friction
+                let friction = FRICTION_ROUGH; 
+                for(let f of window.gameState.fairways) if(rectCircleColliding(f, ball)) friction = FRICTION_FAIRWAY;
+                for(let g of window.gameState.greens) if(rectCircleColliding(g, ball)) friction = FRICTION_GREEN;
+                for(let s of window.gameState.sand) if(rectCircleColliding(s, ball)) friction = FRICTION_SAND;
                 for(let w of window.gameState.water) {
                     if(rectCircleColliding(w, ball)) {
                         handleWaterHazard();
@@ -714,7 +713,6 @@
                 const dy = ball.y - window.gameState.hole.y;
                 const dist = Math.sqrt(dx*dx + dy*dy);
                 if (dist < window.gameState.hole.radius) {
-                    // Only drop in if rolling slow enough
                     const speed = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
                     if (speed < 5) {
                         ball.state = 'inHole';
@@ -725,7 +723,7 @@
                 }
             }
 
-            // Wall Collisions (Always active for XY)
+            // Wall Collisions
             for (let wall of window.gameState.walls) resolveWallCollision(wall);
         }
 
@@ -741,9 +739,6 @@
             window.gameState.strokes++;
             showMessage("SPLASH! +1 Stroke");
             window.gameState.ball.state = 'idle';
-            // Reset to previous shot location (simplified: move back a bit or reset level start?)
-            // For now, reset to start of level is harshest, let's just stop ball and move to nearest safe spot?
-            // Easiest: Reset to start of level.
             const levelData = window.activeCourse.levels[window.gameState.levelIndex];
             window.gameState.ball.x = levelData.start.x * window.gameState.worldWidth;
             window.gameState.ball.y = levelData.start.y * window.gameState.worldHeight;
@@ -753,7 +748,6 @@
         }
 
         function determineLie() {
-            // Check where the ball is resting to set state/UI
             const ball = window.gameState.ball;
             let lie = "Rough";
             let onGreen = false;
@@ -767,7 +761,6 @@
                 }
             }
 
-            // Start of level check
             const levelData = window.activeCourse.levels[window.gameState.levelIndex];
             const startX = levelData.start.x * window.gameState.worldWidth;
             const startY = levelData.start.y * window.gameState.worldHeight;
@@ -784,15 +777,14 @@
             } else {
                 window.gameState.isPutting = false;
                 window.gameState.camera.targetZoom = 1.0;
-                // Auto select appropriate club based on distance
+                
+                // Auto Select club based on distance
                 const distToHole = Math.sqrt(Math.pow(window.gameState.hole.x - ball.x, 2) + Math.pow(window.gameState.hole.y - ball.y, 2));
-                // Convert pixels back to 'yards' approx (15px speed = 300y... complicated math, let's approximate)
-                // Let's just pick based on pixel distance
                 if (distToHole > 4000) selectClub(0); // Driver
                 else if (distToHole > 2000) selectClub(1); // Iron
                 else selectClub(2); // Wedge
             }
-            generateClubUI(); // Update UI for disabled buttons
+            generateClubUI();
         }
 
         function rectCircleColliding(rect, circle) {
@@ -882,91 +874,69 @@
             
             // 1. Main Game View
             ctx.save();
-            // Transform: Center screen is (width/2, height/2). Camera is at (cam.x, cam.y).
-            // Translate to center, Scale, Translate back by camera pos
             ctx.translate(width/2, height/2);
             ctx.scale(cam.zoom, cam.zoom);
             ctx.translate(-cam.x, -cam.y);
 
-            // Rough (Background)
-            ctx.fillStyle = '#27ae60'; // Dark green rough
+            // Rough
+            ctx.fillStyle = '#27ae60';
             ctx.fillRect(0, 0, window.gameState.worldWidth, window.gameState.worldHeight);
 
-            // Grid (Subtle)
-            ctx.strokeStyle = 'rgba(0,0,0,0.05)'; ctx.lineWidth = 1;
-            // Optim: Only draw grid near camera? Na, simple is fine.
-            // for(let x=0; x<window.gameState.worldWidth; x+=100) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,window.gameState.worldHeight); ctx.stroke(); }
-            
-            // Render Terrain Layers
-            // Fairways
-            ctx.fillStyle = '#2ecc71'; // Lighter green
+            // Terrain
+            ctx.fillStyle = '#2ecc71';
             for (let f of window.gameState.fairways) ctx.fillRect(f.x, f.y, f.w, f.h);
 
-            // Greens
-            ctx.fillStyle = '#58d68d'; // Brightest/Smooth green
+            ctx.fillStyle = '#58d68d';
             for (let g of window.gameState.greens) {
-                ctx.beginPath(); 
-                // Draw rounded rect for green
-                ctx.roundRect(g.x, g.y, g.w, g.h, 10);
-                ctx.fill();
-                // Stroke for definition
+                ctx.beginPath(); ctx.roundRect(g.x, g.y, g.w, g.h, 10); ctx.fill();
                 ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.lineWidth = 2; ctx.stroke();
             }
 
-            // Sand
             ctx.fillStyle = '#f1c40f';
             for (let s of window.gameState.sand) {
                 ctx.beginPath(); ctx.roundRect(s.x, s.y, s.w, s.h, 5); ctx.fill();
             }
 
-            // Water
             ctx.fillStyle = '#3498db';
             for (let w of window.gameState.water) {
                 ctx.fillRect(w.x, w.y, w.w, w.h);
-                // Simple wave effect
-                ctx.fillStyle = 'rgba(255,255,255,0.1)';
-                ctx.fillText("~", w.x + 10, w.y + 20);
+                ctx.fillStyle = 'rgba(255,255,255,0.1)'; ctx.fillText("~", w.x + 10, w.y + 20);
                 ctx.fillStyle = '#3498db';
             }
 
-            // Walls
             ctx.fillStyle = '#95a5a6';
             for (let w of window.gameState.walls) ctx.fillRect(w.x, w.y, w.w, w.h);
 
+            // Putting Scaler: If putting, draw items slightly smaller so they don't look giant when zoomed in
+            const scaleMod = window.gameState.isPutting ? 0.6 : 1.0;
+
             // Hole
             ctx.fillStyle = '#2c3e50';
-            ctx.beginPath(); ctx.arc(window.gameState.hole.x, window.gameState.hole.y, window.gameState.hole.radius, 0, Math.PI * 2); ctx.fill();
-            // Pin Flag
+            ctx.beginPath(); ctx.arc(window.gameState.hole.x, window.gameState.hole.y, window.gameState.hole.radius * scaleMod, 0, Math.PI * 2); ctx.fill();
+            // Flag
             ctx.fillStyle = '#e74c3c';
-            ctx.fillRect(window.gameState.hole.x - 1, window.gameState.hole.y - 30, 2, 30); // Pole
-            ctx.beginPath(); ctx.moveTo(window.gameState.hole.x, window.gameState.hole.y - 30); ctx.lineTo(window.gameState.hole.x + 15, window.gameState.hole.y - 25); ctx.lineTo(window.gameState.hole.x, window.gameState.hole.y - 20); ctx.fill(); // Flag
+            ctx.fillRect(window.gameState.hole.x - 1, window.gameState.hole.y - 30, 2, 30);
+            ctx.beginPath(); ctx.moveTo(window.gameState.hole.x, window.gameState.hole.y - 30); ctx.lineTo(window.gameState.hole.x + 15, window.gameState.hole.y - 25); ctx.lineTo(window.gameState.hole.x, window.gameState.hole.y - 20); ctx.fill();
 
-            // Ball Shadow (Stays on ground)
+            // Ball Shadow
             if (window.gameState.ball.state !== 'inHole') {
                 ctx.fillStyle = 'rgba(0,0,0,0.3)';
-                const shadowSize = window.gameState.ball.radius * (1 - (window.gameState.ball.z / 200)); // Shrink shadow with height
+                const shadowSize = window.gameState.ball.radius * scaleMod * (1 - (window.gameState.ball.z / 200));
                 ctx.beginPath(); ctx.arc(window.gameState.ball.x, window.gameState.ball.y, Math.max(0, shadowSize), 0, Math.PI * 2); ctx.fill();
             }
 
-            // Ball (Drawn at y - z)
+            // Ball
             if (window.gameState.ball.state !== 'inHole') {
                 const b = window.gameState.ball;
-                // Scale ball with height for "zoom" effect toward camera
                 const scale = 1 + (b.z / 100); 
-                
                 ctx.fillStyle = b.color;
                 ctx.beginPath(); 
-                // Y position minus Z for height
-                ctx.arc(b.x, b.y - b.z, b.radius * scale, 0, Math.PI * 2); 
+                ctx.arc(b.x, b.y - b.z, b.radius * scaleMod * scale, 0, Math.PI * 2); 
                 ctx.fill();
-                
-                // Shine
-                ctx.fillStyle = 'rgba(255,255,255,0.8)';
-                ctx.beginPath(); ctx.arc(b.x - 2, b.y - b.z - 2, 2 * scale, 0, Math.PI*2); ctx.fill();
             }
 
             // Golfer
-            if (window.gameState.ball.state === 'idle') drawGolfer(ctx);
+            if (window.gameState.ball.state === 'idle') drawGolfer(ctx, scaleMod);
 
             // Aim Line
             if (window.gameState.isDragging && window.gameState.ball.state === 'idle') {
@@ -976,26 +946,34 @@
                 let dist = Math.sqrt(dx*dx + dy*dy);
                 let angle = Math.atan2(dy, dx);
                 
-                // Visual length based on club
-                let powerRatio = Math.min(dist, 200) / 200;
-                let aimLen = 50 + (powerRatio * club.maxDist * 0.5); // Visual scaling
+                let aimLen;
+
+                if (window.gameState.isPutting) {
+                    // Putting: Aim Line = Exact expected travel distance
+                    // Distance = Velocity / (1 - Friction) roughly for frame based decay
+                    // We calculate expected speed from drag
+                    // Max Speed for Putter = 60/20 = 3
+                    let powerRatio = Math.min(dist, 200) / 200;
+                    let speed = (club.maxDist / 20) * powerRatio;
+                    // Decay factor
+                    let friction = FRICTION_GREEN; 
+                    // Geometric sum approx: d = v / (1 - f)
+                    aimLen = speed / (1 - friction);
+                } else {
+                    // Driving/Iron: Visual Scale based on power
+                    let powerRatio = Math.min(dist, 200) / 200;
+                    aimLen = 50 + (powerRatio * club.maxDist * 0.5); 
+                }
 
                 ctx.save();
                 ctx.translate(window.gameState.ball.x, window.gameState.ball.y);
                 ctx.rotate(angle);
                 
-                // Cone of uncertainty (optional, simpler to just use line)
-                ctx.strokeStyle = club.color; // Club color
-                ctx.lineWidth = 3;
+                ctx.strokeStyle = club.color;
+                ctx.lineWidth = 3 * scaleMod;
                 ctx.setLineDash([5, 5]);
                 
-                // Draw line
                 ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(aimLen, 0); ctx.stroke();
-                
-                // Draw Range Markers (Min/Max)
-                ctx.fillStyle = 'white';
-                // Min marker
-                // ctx.fillRect((club.minDist/club.maxDist)*200, -5, 2, 10);
                 
                 ctx.restore();
             }
@@ -1006,24 +984,24 @@
             drawMinimap();
         }
 
-        function drawGolfer(context) {
-            const offsetDist = 20;
+        function drawGolfer(context, scale) {
+            const offsetDist = 20 * scale;
             const gx = window.gameState.ball.x - Math.cos(window.gameState.golferAngle) * offsetDist;
             const gy = window.gameState.ball.y - Math.sin(window.gameState.golferAngle) * offsetDist;
 
             context.save();
             context.translate(gx, gy);
             context.rotate(window.gameState.golferAngle);
+            context.scale(scale, scale);
 
             // Simple Top Down
-            context.fillStyle = '#34495e'; // Pants
+            context.fillStyle = '#34495e'; 
             context.beginPath(); context.roundRect(-8, -5, 16, 10, 2); context.fill();
-            context.fillStyle = '#e74c3c'; // Shirt
+            context.fillStyle = '#e74c3c'; 
             context.beginPath(); context.arc(0, 0, 10, 0, Math.PI*2); context.fill();
-            context.fillStyle = '#f1c40f'; // Hat
+            context.fillStyle = '#f1c40f'; 
             context.beginPath(); context.arc(0, 0, 6, 0, Math.PI*2); context.fill();
             
-            // Club
             context.strokeStyle = '#95a5a6'; context.lineWidth = 3;
             context.beginPath(); context.moveTo(5, 5); context.lineTo(15, 0); context.stroke();
 
@@ -1031,50 +1009,43 @@
         }
 
         function drawMinimap() {
-            // Scale world to minimap size
             const mmW = minimapCanvas.width;
             const mmH = minimapCanvas.height;
             const scaleX = mmW / window.gameState.worldWidth;
             const scaleY = mmH / window.gameState.worldHeight;
-            // Use uniform scale to preserve aspect ratio, centering content
             const scale = Math.min(scaleX, scaleY);
             
-            // Clear
             mmCtx.fillStyle = '#2c3e50';
             mmCtx.fillRect(0, 0, mmW, mmH);
 
             mmCtx.save();
-            // Center map in canvas
             const offsetX = (mmW - window.gameState.worldWidth * scale) / 2;
             const offsetY = (mmH - window.gameState.worldHeight * scale) / 2;
             mmCtx.translate(offsetX, offsetY);
             mmCtx.scale(scale, scale);
 
-            // Draw Terrain simplified
-            mmCtx.fillStyle = '#27ae60'; // Rough
+            mmCtx.fillStyle = '#27ae60'; 
             mmCtx.fillRect(0,0, window.gameState.worldWidth, window.gameState.worldHeight);
             
-            mmCtx.fillStyle = '#2ecc71'; // Fairway
+            mmCtx.fillStyle = '#2ecc71'; 
             window.gameState.fairways.forEach(r => mmCtx.fillRect(r.x, r.y, r.w, r.h));
             
-            mmCtx.fillStyle = '#58d68d'; // Green
+            mmCtx.fillStyle = '#58d68d'; 
             window.gameState.greens.forEach(r => mmCtx.fillRect(r.x, r.y, r.w, r.h));
 
-            mmCtx.fillStyle = '#3498db'; // Water
+            mmCtx.fillStyle = '#3498db'; 
             window.gameState.water.forEach(r => mmCtx.fillRect(r.x, r.y, r.w, r.h));
             
-            mmCtx.fillStyle = '#f1c40f'; // Sand
+            mmCtx.fillStyle = '#f1c40f'; 
             window.gameState.sand.forEach(r => mmCtx.fillRect(r.x, r.y, r.w, r.h));
 
-            // Hole
             mmCtx.fillStyle = '#fff';
             mmCtx.beginPath(); mmCtx.arc(window.gameState.hole.x, window.gameState.hole.y, 20, 0, Math.PI*2); mmCtx.fill();
 
-            // Player Dot
             mmCtx.fillStyle = '#e74c3c';
             mmCtx.beginPath(); mmCtx.arc(window.gameState.ball.x, window.gameState.ball.y, 30, 0, Math.PI*2); mmCtx.fill();
             
-            // Viewport Box (Where camera is looking)
+            // Camera Box
             mmCtx.strokeStyle = 'rgba(255,255,255,0.5)';
             mmCtx.lineWidth = 10;
             const cam = window.gameState.camera;
