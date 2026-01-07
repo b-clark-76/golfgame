@@ -13,13 +13,14 @@
             overflow: hidden;
             background-color: #2c3e50;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            touch-action: none; /* Prevent browser zooming/scrolling */
+            touch-action: none;
         }
 
         canvas {
             display: block;
         }
 
+        /* UI Overlay Layer */
         #ui-layer {
             position: absolute;
             top: 20px;
@@ -27,33 +28,85 @@
             pointer-events: none;
             color: white;
             text-shadow: 2px 2px 0 #000;
+            display: none; /* Hidden on start menu */
         }
 
-        h1 {
-            margin: 0;
+        h1 { margin: 0; font-size: 24px; color: #f1c40f; }
+        p { margin: 5px 0 0 0; font-size: 16px; }
+
+        /* Start Menu */
+        #start-menu {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(44, 62, 80, 0.95);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            color: white;
+            text-align: center;
+        }
+
+        #start-menu h1 {
+            font-size: 48px;
+            margin-bottom: 40px;
+            text-shadow: 4px 4px 0 #27ae60;
+        }
+
+        .menu-btn {
+            background: #27ae60;
+            border: none;
+            padding: 15px 40px;
+            color: white;
             font-size: 24px;
-            color: #f1c40f;
+            font-weight: bold;
+            border-radius: 8px;
+            cursor: pointer;
+            margin: 10px;
+            transition: transform 0.1s, background 0.2s;
+            box-shadow: 0 4px 0 #219150;
         }
 
-        p {
-            margin: 5px 0 0 0;
-            font-size: 16px;
+        .menu-btn:active {
+            transform: translateY(4px);
+            box-shadow: 0 0 0 #219150;
         }
 
+        .menu-btn:hover { background: #2ecc71; }
+
+        .file-upload-container {
+            margin-top: 30px;
+            padding: 20px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 8px;
+        }
+
+        .file-input {
+            margin-top: 10px;
+            color: #ecf0f1;
+        }
+
+        #error-msg {
+            color: #e74c3c;
+            margin-top: 10px;
+            min-height: 20px;
+            font-weight: bold;
+        }
+
+        /* In-game Messages */
         #message-area {
             position: absolute;
-            top: 50%;
-            left: 50%;
+            top: 50%; left: 50%;
             transform: translate(-50%, -50%);
             text-align: center;
             pointer-events: none;
             opacity: 0;
             transition: opacity 0.5s;
+            z-index: 50;
         }
 
-        #message-area.visible {
-            opacity: 1;
-        }
+        #message-area.visible { opacity: 1; }
 
         .message-text {
             font-size: 48px;
@@ -73,18 +126,33 @@
             color: rgba(255, 255, 255, 0.7);
             pointer-events: none;
             font-size: 14px;
+            display: none;
         }
     </style>
 </head>
 <body>
 
-    <div id="ui-layer">
+    <!-- Start Menu -->
+    <div id="start-menu">
         <h1>Retro Mini Golf</h1>
-        <p>Par: <span id="par-display">3</span></p>
-        <p>Strokes: <span id="strokes-display">0</span></p>
-        <p>Level: <span id="level-display">1</span></p>
+        <button class="menu-btn" onclick="startGame(null)">Play Default Course</button>
+        
+        <div class="file-upload-container">
+            <p>Or upload a Custom Course (.json)</p>
+            <input type="file" id="course-upload" class="file-input" accept=".json">
+            <div id="error-msg"></div>
+        </div>
     </div>
 
+    <!-- HUD -->
+    <div id="ui-layer">
+        <h1 id="course-title">Default Course</h1>
+        <p>Hole: <span id="level-display">1</span> / <span id="total-levels">18</span></p>
+        <p>Par: <span id="par-display">3</span></p>
+        <p>Strokes: <span id="strokes-display">0</span></p>
+    </div>
+
+    <!-- Notifications -->
     <div id="message-area">
         <div id="message-text" class="message-text">Hole in One!</div>
     </div>
@@ -95,27 +163,77 @@
 
     <script>
         /**
-         * Game Configuration and State
+         * DEFAULT COURSE DATA
+         * Normalized coordinates (0.0 to 1.0) for resolution independence.
+         */
+        const defaultCourseData = {
+            name: "Default Links",
+            levels: [
+                // Level 1: Straight Shot
+                {
+                    par: 2,
+                    start: {x: 0.2, y: 0.5},
+                    hole: {x: 0.8, y: 0.5},
+                    walls: [],
+                    sand: [{x: 0.4, y: 0.3, w: 0.2, h: 0.4}],
+                    water: []
+                },
+                // Level 2: Dogleg Right
+                {
+                    par: 3,
+                    start: {x: 0.15, y: 0.8},
+                    hole: {x: 0.85, y: 0.2},
+                    walls: [{x: 0.4, y: 0.4, w: 0.6, h: 0.05}],
+                    sand: [],
+                    water: [{x: 0.6, y: 0.6, w: 0.15, h: 0.15}]
+                },
+                // Level 3: The Gap
+                {
+                    par: 4,
+                    start: {x: 0.5, y: 0.9},
+                    hole: {x: 0.5, y: 0.1},
+                    walls: [{x: 0.3, y: 0.4, w: 0.4, h: 0.1}],
+                    sand: [],
+                    water: [
+                        {x: 0.0, y: 0.4, w: 0.2, h: 0.1},
+                        {x: 0.8, y: 0.4, w: 0.2, h: 0.1}
+                    ]
+                }
+            ]
+        };
+
+        /**
+         * Game Engine
          */
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
+        
+        // UI Elements
+        const startMenu = document.getElementById('start-menu');
+        const uiLayer = document.getElementById('ui-layer');
+        const controlsHint = document.getElementById('controls-hint');
         const uiStrokes = document.getElementById('strokes-display');
         const uiLevel = document.getElementById('level-display');
+        const uiTotalLevels = document.getElementById('total-levels');
         const uiPar = document.getElementById('par-display');
+        const uiTitle = document.getElementById('course-title');
         const messageArea = document.getElementById('message-area');
         const messageText = document.getElementById('message-text');
+        const errorMsg = document.getElementById('error-msg');
 
         let width, height;
+        let animationFrameId;
         
         // Physics constants
         const FRICTION = 0.97;
         const STOP_THRESHOLD = 0.1;
-        const MAX_POWER = 15;
         const WALL_BOUNCE = 0.7;
 
         // Game State
+        let activeCourse = null;
         let gameState = {
-            level: 1,
+            isPlaying: false,
+            levelIndex: 0, // 0-based index
             strokes: 0,
             par: 3,
             isDragging: false,
@@ -123,158 +241,170 @@
             dragStartY: 0,
             dragCurrentX: 0,
             dragCurrentY: 0,
-            ball: {
-                x: 0, y: 0, vx: 0, vy: 0, radius: 8, color: '#ecf0f1', moving: false, inHole: false
-            },
-            hole: {
-                x: 0, y: 0, radius: 12
-            },
-            walls: [], // Array of rects {x, y, w, h}
-            water: [], // Array of rects
-            sand: [],  // Array of rects
+            ball: { x: 0, y: 0, vx: 0, vy: 0, radius: 8, color: '#ecf0f1', moving: false, inHole: false },
+            hole: { x: 0, y: 0, radius: 12 },
+            walls: [],
+            water: [],
+            sand: [],
             golferAngle: 0
         };
 
-        /**
-         * Initialization and Resizing
-         */
+        // --- Initialization ---
+
         function resize() {
             width = window.innerWidth;
             height = window.innerHeight;
             canvas.width = width;
             canvas.height = height;
             
-            // If the ball is off-screen (e.g. after a resize), reset it to center
-            if (gameState.ball.x < 0 || gameState.ball.x > width || gameState.ball.y < 0 || gameState.ball.y > height) {
-                resetLevel(gameState.level);
+            // If playing, re-calculate scale for current level objects
+            if (gameState.isPlaying) {
+                // To keep it simple, we re-load the current level to snap objects to new screen size
+                // We try to preserve ball position ratio
+                const oldW = (width / window.innerWidth) * width; // approximate previous
+                // Ideally, we just reset the level geometry but keep ball relative pos
+                if(!gameState.ball.moving) {
+                    loadLevel(gameState.levelIndex, true);
+                }
+            } else {
+                // If on menu, just draw a simple background
+                drawMenuBackground();
             }
         }
 
         window.addEventListener('resize', resize);
 
-        function initGame() {
-            resize();
-            resetLevel(1);
-            requestAnimationFrame(gameLoop);
+        // --- File Upload Logic ---
+
+        document.getElementById('course-upload').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const json = JSON.parse(e.target.result);
+                    if (validateCourse(json)) {
+                        startGame(json);
+                    } else {
+                        throw new Error("Invalid course format");
+                    }
+                } catch (err) {
+                    errorMsg.innerText = "Error: " + err.message;
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        function validateCourse(data) {
+            if (!data.levels || !Array.isArray(data.levels) || data.levels.length === 0) return false;
+            // Check first level structure
+            const lvl = data.levels[0];
+            if (!lvl.start || !lvl.hole) return false;
+            return true;
         }
 
-        /**
-         * Level Generation
-         */
-        function resetLevel(level) {
-            gameState.level = level;
-            gameState.strokes = 0;
-            gameState.ball.moving = false;
-            gameState.ball.vx = 0;
-            gameState.ball.vy = 0;
-            gameState.ball.inHole = false;
-            gameState.isDragging = false;
+        // --- Game Flow Control ---
+
+        function startGame(customCourseData) {
+            activeCourse = customCourseData || defaultCourseData;
             
+            // UI Transition
+            startMenu.style.display = 'none';
+            uiLayer.style.display = 'block';
+            controlsHint.style.display = 'block';
+            uiTitle.innerText = activeCourse.name || "Custom Course";
+            uiTotalLevels.innerText = activeCourse.levels.length;
+
+            gameState.isPlaying = true;
+            resize(); // Ensure canvas is sized
+            loadLevel(0);
+            
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            gameLoop();
+        }
+
+        function loadLevel(index, preserveBall = false) {
+            if (index >= activeCourse.levels.length) {
+                endGame();
+                return;
+            }
+
+            gameState.levelIndex = index;
+            const levelData = activeCourse.levels[index];
+            
+            // Set stats
+            gameState.par = levelData.par || 3;
+            if (!preserveBall) {
+                gameState.strokes = 0;
+                gameState.ball.moving = false;
+                gameState.ball.vx = 0;
+                gameState.ball.vy = 0;
+                gameState.ball.inHole = false;
+            }
+            gameState.isDragging = false;
+
             updateUI();
 
-            // Responsive Level Layout
-            const padding = Math.min(width, height) * 0.1;
-            const playableWidth = width - padding * 2;
-            const playableHeight = height - padding * 2;
+            // Coordinate conversion helper
+            // JSON uses 0.0-1.0. We convert to pixels.
+            const sx = (val) => val * width;
+            const sy = (val) => val * height;
 
-            // Clear previous obstacles
+            // Setup Objects
+            if (!preserveBall) {
+                gameState.ball.x = sx(levelData.start.x);
+                gameState.ball.y = sy(levelData.start.y);
+            }
+            gameState.hole.x = sx(levelData.hole.x);
+            gameState.hole.y = sy(levelData.hole.y);
+
+            // Clear arrays
             gameState.walls = [];
             gameState.water = [];
             gameState.sand = [];
 
-            // Standard border walls
+            // Add standard border walls
             gameState.walls.push({x: 0, y: 0, w: width, h: 20}); // Top
             gameState.walls.push({x: 0, y: height - 20, w: width, h: 20}); // Bottom
             gameState.walls.push({x: 0, y: 0, w: 20, h: height}); // Left
             gameState.walls.push({x: width - 20, y: 0, w: 20, h: height}); // Right
 
-            // Set Start and Hole positions based on level
-            if (level === 1) {
-                // Straight shot
-                gameState.par = 2;
-                gameState.ball.x = width * 0.2;
-                gameState.ball.y = height * 0.5;
-                gameState.hole.x = width * 0.8;
-                gameState.hole.y = height * 0.5;
-
-                // Simple obstacle
-                gameState.sand.push({
-                    x: width * 0.4, 
-                    y: height * 0.3, 
-                    w: width * 0.2, 
-                    h: height * 0.4
-                });
-
-            } else if (level === 2) {
-                // Dogleg
-                gameState.par = 3;
-                gameState.ball.x = width * 0.15;
-                gameState.ball.y = height * 0.8;
-                gameState.hole.x = width * 0.85;
-                gameState.hole.y = height * 0.2;
-
-                // Walls to force a corner
-                gameState.walls.push({
-                    x: width * 0.4,
-                    y: height * 0.4,
-                    w: width * 0.6,
-                    h: 20
-                });
-
-                gameState.water.push({
-                    x: width * 0.6,
-                    y: height * 0.6,
-                    w: 80,
-                    h: 80
-                });
-            } else if (level === 3) {
-                // Narrow pass
-                gameState.par = 4;
-                gameState.ball.x = width * 0.5;
-                gameState.ball.y = height * 0.9;
-                gameState.hole.x = width * 0.5;
-                gameState.hole.y = height * 0.1;
-
-                // Center block
-                gameState.walls.push({
-                    x: width * 0.3,
-                    y: height * 0.4,
-                    w: width * 0.4,
-                    h: 40
-                });
-                
-                // Side water
-                gameState.water.push({x: 0, y: height * 0.4, w: width * 0.2, h: 40});
-                gameState.water.push({x: width * 0.8, y: height * 0.4, w: width * 0.2, h: 40});
-
-            } else {
-                // Loop back to level 1 for now (infinite loop)
-                resetLevel(1);
+            // Load Custom Obstacles
+            if (levelData.walls) {
+                levelData.walls.forEach(w => gameState.walls.push({x: sx(w.x), y: sy(w.y), w: sx(w.w), h: sy(w.h)}));
             }
-            updateUI();
+            if (levelData.water) {
+                levelData.water.forEach(w => gameState.water.push({x: sx(w.x), y: sy(w.y), w: sx(w.w), h: sy(w.h)}));
+            }
+            if (levelData.sand) {
+                levelData.sand.forEach(s => gameState.sand.push({x: sx(s.x), y: sy(s.y), w: sx(s.w), h: sy(s.h)}));
+            }
         }
 
-        /**
-         * Input Handling
-         */
+        function endGame() {
+            gameState.isPlaying = false;
+            showMessage("Course Complete!");
+            setTimeout(() => {
+                location.reload(); // Reload page to return to menu
+            }, 3000);
+        }
+
+        // --- Inputs ---
+
         function getPointerPos(e) {
-            if (e.touches) {
-                return { x: e.touches[0].clientX, y: e.touches[0].clientY };
-            }
+            if (e.touches) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
             return { x: e.clientX, y: e.clientY };
         }
 
         function handleStart(e) {
-            if (gameState.ball.moving || gameState.ball.inHole) return;
-            
+            if (!gameState.isPlaying || gameState.ball.moving || gameState.ball.inHole) return;
             const pos = getPointerPos(e);
             gameState.isDragging = true;
-            gameState.dragStartX = gameState.ball.x; // Drag relative to ball
+            gameState.dragStartX = gameState.ball.x; 
             gameState.dragStartY = gameState.ball.y;
             gameState.dragCurrentX = pos.x;
             gameState.dragCurrentY = pos.y;
-            
-            // Initial angle calculation for golfer rotation
             updateGolferAngle(pos.x, pos.y);
         }
 
@@ -283,7 +413,6 @@
             const pos = getPointerPos(e);
             gameState.dragCurrentX = pos.x;
             gameState.dragCurrentY = pos.y;
-            
             updateGolferAngle(pos.x, pos.y);
         }
 
@@ -291,61 +420,22 @@
             if (!gameState.isDragging) return;
             gameState.isDragging = false;
 
-            // Calculate vector from touch point to ball (pull back to shoot)
-            // Logic: Dragging away from ball creates a vector towards the ball
-            // Actually standard angry-birds style: Drag back -> Shoot forward
-            
-            // Calculate vector from mouse to ball
-            let dx = gameState.ball.x - gameState.dragCurrentX;
-            let dy = gameState.ball.y - gameState.dragCurrentY;
-
-            // If we drag from arbitrary screen point, we need the delta
-            // Let's simplify: Input vector is simply (Start - Current)
-            // But we set StartX to BallX for simplicity in handleStart. 
-            // However, touch drag feels better if start is where you touch.
-            
-            // Let's use simple distance based on drag start vs drag end, applied to ball direction
-            // But visually, we are drawing a line from ball.
-            // Let's assume the user touched the ball (or near it) and dragged back.
-            
-            // Re-calc based on visual "pull string" logic
-            // Vector is (Ball Position - Mouse Position)
-            // If mouse is to the left of ball, vector is positive X (shoot right)
-            
-            // We need to support dragging anywhere on screen though for mobile friendliness
-            // So:
-            // Vector = (dragStartX - dragCurrentX, dragStartY - dragCurrentY)
-            // But centered on the ball
-            
-            // Actually, let's just stick to: Vector = Ball - Mouse (Assuming mouse acts as the pull point)
-            // For "Drag Anywhere":
-            // We need the delta from the start of the drag.
-            
-            // Vector magnitude
-            const pullDx = gameState.dragStartX - gameState.dragCurrentX; // Dragging left (negative) produces positive force (right)
+            const pullDx = gameState.dragStartX - gameState.dragCurrentX;
             const pullDy = gameState.dragStartY - gameState.dragCurrentY;
-            
-            // Apply power limit
             const dist = Math.sqrt(pullDx*pullDx + pullDy*pullDy);
             
-            if (dist > 10) { // Minimum threshold to shoot
-                const scale = Math.min(dist, 200) / 10; // Cap power
-                
+            if (dist > 10) { 
+                const scale = Math.min(dist, 200) / 10;
                 const angle = Math.atan2(pullDy, pullDx);
-                
                 gameState.ball.vx = Math.cos(angle) * scale;
                 gameState.ball.vy = Math.sin(angle) * scale;
                 gameState.ball.moving = true;
                 gameState.strokes++;
                 updateUI();
-                
-                // Play swing sound (optional, kept silent for template)
             }
         }
         
         function updateGolferAngle(targetX, targetY) {
-            // Golfer faces the direction we are aiming
-            // If dragging, we aim opposite to the drag
             const dx = gameState.ball.x - targetX;
             const dy = gameState.ball.y - targetY;
             gameState.golferAngle = Math.atan2(dy, dx);
@@ -354,29 +444,25 @@
         window.addEventListener('mousedown', handleStart);
         window.addEventListener('mousemove', handleMove);
         window.addEventListener('mouseup', handleEnd);
-        
         window.addEventListener('touchstart', handleStart, {passive: false});
         window.addEventListener('touchmove', (e) => { e.preventDefault(); handleMove(e); }, {passive: false});
         window.addEventListener('touchend', handleEnd);
 
-        /**
-         * Physics Engine
-         */
+        // --- Physics ---
+
         function update() {
             if (!gameState.ball.moving) return;
 
-            // Apply Velocity
             gameState.ball.x += gameState.ball.vx;
             gameState.ball.y += gameState.ball.vy;
 
-            // Apply Friction
             let currentFriction = FRICTION;
-
-            // Check Sand Traps
             let inSand = false;
+            
+            // Sand
             for (let sand of gameState.sand) {
                 if (rectCircleColliding(sand, gameState.ball)) {
-                    currentFriction = 0.85; // Heavy friction
+                    currentFriction = 0.85; 
                     inSand = true;
                 }
             }
@@ -384,51 +470,42 @@
             gameState.ball.vx *= currentFriction;
             gameState.ball.vy *= currentFriction;
 
-            // Stop if too slow
+            // Stop condition
             if (Math.abs(gameState.ball.vx) < STOP_THRESHOLD && Math.abs(gameState.ball.vy) < STOP_THRESHOLD) {
-                gameState.ball.vx = 0;
-                gameState.ball.vy = 0;
-                gameState.ball.moving = false;
+                gameState.ball.vx = 0; gameState.ball.vy = 0; gameState.ball.moving = false;
             }
 
-            // Wall Collisions
-            for (let wall of gameState.walls) {
-                resolveWallCollision(wall);
-            }
+            // Walls
+            for (let wall of gameState.walls) resolveWallCollision(wall);
 
-            // Water Hazards
+            // Water
             for (let water of gameState.water) {
                 if (rectCircleColliding(water, gameState.ball)) {
-                    // Reset ball to start of level (penalty)
                     gameState.strokes++;
                     showMessage("SPLASH! +1 Stroke");
                     gameState.ball.moving = false;
                     setTimeout(() => {
-                        // Reset to rough start area
-                        if (gameState.level === 1) {
-                            gameState.ball.x = width * 0.2; gameState.ball.y = height * 0.5;
-                        } else if (gameState.level === 2) {
-                            gameState.ball.x = width * 0.15; gameState.ball.y = height * 0.8;
-                        } else {
-                            gameState.ball.x = width * 0.5; gameState.ball.y = height * 0.9;
-                        }
+                        // Reset to start of THIS level
+                        const levelData = activeCourse.levels[gameState.levelIndex];
+                        gameState.ball.x = levelData.start.x * width;
+                        gameState.ball.y = levelData.start.y * height;
                         gameState.ball.vx = 0;
                         gameState.ball.vy = 0;
                         updateUI();
+                        hideMessage();
                     }, 1000);
                     return; 
                 }
             }
 
-            // Hole Collision
+            // Hole
             const dx = gameState.ball.x - gameState.hole.x;
             const dy = gameState.ball.y - gameState.hole.y;
             const dist = Math.sqrt(dx*dx + dy*dy);
 
             if (dist < gameState.hole.radius) {
-                // Determine success based on speed
                 const speed = Math.sqrt(gameState.ball.vx*gameState.ball.vx + gameState.ball.vy*gameState.ball.vy);
-                if (speed < 10) { // Can't go in if too fast
+                if (speed < 12) { // Slightly generous hole physics
                     gameState.ball.inHole = true;
                     gameState.ball.moving = false;
                     gameState.ball.x = gameState.hole.x;
@@ -441,44 +518,32 @@
         function rectCircleColliding(rect, circle) {
             const distX = Math.abs(circle.x - rect.x - rect.w / 2);
             const distY = Math.abs(circle.y - rect.y - rect.h / 2);
-
-            if (distX > (rect.w / 2 + circle.radius)) { return false; }
-            if (distY > (rect.h / 2 + circle.radius)) { return false; }
-
-            if (distX <= (rect.w / 2)) { return true; } 
-            if (distY <= (rect.h / 2)) { return true; }
-
+            if (distX > (rect.w / 2 + circle.radius)) return false;
+            if (distY > (rect.h / 2 + circle.radius)) return false;
+            if (distX <= (rect.w / 2)) return true; 
+            if (distY <= (rect.h / 2)) return true;
             const dx = distX - rect.w / 2;
             const dy = distY - rect.h / 2;
             return (dx * dx + dy * dy <= (circle.radius * circle.radius));
         }
 
         function resolveWallCollision(wall) {
-            // Simple AABB collision response (imperfect for corners but good for walls)
-            // Check if inside expanded bounding box
             if (gameState.ball.x + gameState.ball.radius > wall.x &&
                 gameState.ball.x - gameState.ball.radius < wall.x + wall.w &&
                 gameState.ball.y + gameState.ball.radius > wall.y &&
                 gameState.ball.y - gameState.ball.radius < wall.y + wall.h) {
                 
-                // Determine side of collision
-                // Find closest point on rect to circle center
                 const closestX = Math.max(wall.x, Math.min(gameState.ball.x, wall.x + wall.w));
                 const closestY = Math.max(wall.y, Math.min(gameState.ball.y, wall.y + wall.h));
-
                 const dx = gameState.ball.x - closestX;
                 const dy = gameState.ball.y - closestY;
 
                 if (Math.abs(dx) > Math.abs(dy)) {
-                    // Hit vertical side
                     gameState.ball.vx *= -WALL_BOUNCE;
-                    // Push out
                     if (dx > 0) gameState.ball.x = wall.x + wall.w + gameState.ball.radius;
                     else gameState.ball.x = wall.x - gameState.ball.radius;
                 } else {
-                    // Hit horizontal side
                     gameState.ball.vy *= -WALL_BOUNCE;
-                    // Push out
                     if (dy > 0) gameState.ball.y = wall.y + wall.h + gameState.ball.radius;
                     else gameState.ball.y = wall.y - gameState.ball.radius;
                 }
@@ -489,12 +554,10 @@
             let msg = "Level Complete!";
             if (gameState.strokes === 1) msg = "HOLE IN ONE!";
             else if (gameState.strokes <= gameState.par) msg = "Under Par!";
-            
             showMessage(msg);
-            
             setTimeout(() => {
-                resetLevel(gameState.level + 1);
                 hideMessage();
+                loadLevel(gameState.levelIndex + 1);
             }, 2000);
         }
 
@@ -509,95 +572,84 @@
 
         function updateUI() {
             uiStrokes.innerText = gameState.strokes;
-            uiLevel.innerText = gameState.level;
+            uiLevel.innerText = gameState.levelIndex + 1;
             uiPar.innerText = gameState.par;
         }
 
-        /**
-         * Rendering
-         */
+        // --- Rendering ---
+
+        function drawMenuBackground() {
+            // Simple animated background for menu
+            ctx.fillStyle = '#2c3e50';
+            ctx.fillRect(0, 0, width, height);
+            ctx.strokeStyle = '#34495e';
+            ctx.lineWidth = 2;
+            const time = Date.now() * 0.001;
+            for(let i=0; i<width; i+=50) {
+                ctx.beginPath();
+                ctx.moveTo(i, 0);
+                ctx.lineTo(i + Math.sin(time + i)*20, height);
+                ctx.stroke();
+            }
+        }
+
         function draw() {
-            // Background (Grass)
+            if (!gameState.isPlaying) {
+                drawMenuBackground();
+                return;
+            }
+
+            // Grass
             ctx.fillStyle = '#27ae60';
             ctx.fillRect(0, 0, width, height);
 
-            // Draw Pattern (Grid)
+            // Grid
             ctx.strokeStyle = 'rgba(0,0,0,0.05)';
             ctx.lineWidth = 1;
-            const gridSize = 40;
-            for(let x=0; x<width; x+=gridSize) {
-                ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,height); ctx.stroke();
-            }
-            for(let y=0; y<height; y+=gridSize) {
-                ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(width,y); ctx.stroke();
-            }
+            for(let x=0; x<width; x+=40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,height); ctx.stroke(); }
+            for(let y=0; y<height; y+=40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(width,y); ctx.stroke(); }
 
-            // Draw Sand
+            // Obstacles
             ctx.fillStyle = '#f1c40f';
             for (let sand of gameState.sand) {
                 ctx.fillRect(sand.x, sand.y, sand.w, sand.h);
-                // Texture
                 ctx.fillStyle = 'rgba(0,0,0,0.1)';
-                for(let i=0; i<10; i++) {
-                     ctx.beginPath();
-                     ctx.arc(sand.x + Math.random()*sand.w, sand.y + Math.random()*sand.h, 2, 0, Math.PI*2);
-                     ctx.fill();
+                for(let i=0; i<5; i++) {
+                     ctx.beginPath(); ctx.arc(sand.x + Math.random()*sand.w, sand.y + Math.random()*sand.h, 2, 0, Math.PI*2); ctx.fill();
                 }
-                ctx.fillStyle = '#f1c40f'; // Reset
+                ctx.fillStyle = '#f1c40f';
             }
 
-            // Draw Water
             ctx.fillStyle = '#3498db';
-            for (let water of gameState.water) {
-                ctx.fillRect(water.x, water.y, water.w, water.h);
-            }
+            for (let water of gameState.water) ctx.fillRect(water.x, water.y, water.w, water.h);
 
-            // Draw Walls
             ctx.fillStyle = '#7f8c8d';
             for (let wall of gameState.walls) {
                 ctx.fillRect(wall.x, wall.y, wall.w, wall.h);
-                // 3D effect bevel
-                ctx.fillStyle = 'rgba(255,255,255,0.3)';
-                ctx.fillRect(wall.x, wall.y, wall.w, 5); // Top highlight
-                ctx.fillStyle = 'rgba(0,0,0,0.3)';
-                ctx.fillRect(wall.x, wall.y + wall.h - 5, wall.w, 5); // Bottom shadow
-                ctx.fillStyle = '#7f8c8d'; // Reset
+                ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.fillRect(wall.x, wall.y, wall.w, 5);
+                ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(wall.x, wall.y + wall.h - 5, wall.w, 5);
+                ctx.fillStyle = '#7f8c8d';
             }
 
-            // Draw Hole
+            // Hole
             ctx.fillStyle = '#2c3e50';
-            ctx.beginPath();
-            ctx.arc(gameState.hole.x, gameState.hole.y, gameState.hole.radius, 0, Math.PI * 2);
-            ctx.fill();
+            ctx.beginPath(); ctx.arc(gameState.hole.x, gameState.hole.y, gameState.hole.radius, 0, Math.PI * 2); ctx.fill();
 
-            // Draw Ball
+            // Ball
             if (!gameState.ball.inHole) {
-                // Shadow
                 ctx.fillStyle = 'rgba(0,0,0,0.3)';
-                ctx.beginPath();
-                ctx.arc(gameState.ball.x + 2, gameState.ball.y + 2, gameState.ball.radius, 0, Math.PI * 2);
-                ctx.fill();
-
-                // Ball
+                ctx.beginPath(); ctx.arc(gameState.ball.x + 2, gameState.ball.y + 2, gameState.ball.radius, 0, Math.PI * 2); ctx.fill();
                 ctx.fillStyle = gameState.ball.color;
-                ctx.beginPath();
-                ctx.arc(gameState.ball.x, gameState.ball.y, gameState.ball.radius, 0, Math.PI * 2);
-                ctx.fill();
+                ctx.beginPath(); ctx.arc(gameState.ball.x, gameState.ball.y, gameState.ball.radius, 0, Math.PI * 2); ctx.fill();
             }
 
-            // Draw Golfer (Only when idle)
-            if (!gameState.ball.moving && !gameState.ball.inHole) {
-                drawGolfer();
-            }
+            // Golfer
+            if (!gameState.ball.moving && !gameState.ball.inHole) drawGolfer();
 
-            // Draw Aim Line
+            // Aim Line
             if (gameState.isDragging && !gameState.ball.moving) {
-                // We draw the line from the ball, opposite to the mouse
-                // Vector Mouse -> Ball
                 let dx = gameState.ball.x - gameState.dragCurrentX;
                 let dy = gameState.ball.y - gameState.dragCurrentY;
-                
-                // Same logic as shoot force
                 let dist = Math.sqrt(dx*dx + dy*dy);
                 let angle = Math.atan2(dy, dx);
                 let power = Math.min(dist, 200);
@@ -605,32 +657,17 @@
                 ctx.save();
                 ctx.translate(gameState.ball.x, gameState.ball.y);
                 ctx.rotate(angle);
-
-                // Dotted line
                 ctx.strokeStyle = 'white';
                 ctx.lineWidth = 3;
                 ctx.setLineDash([5, 5]);
-                ctx.beginPath();
-                ctx.moveTo(10, 0); // Start slightly away from ball
-                ctx.lineTo(power, 0);
-                ctx.stroke();
-
-                // Arrow head
+                ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(power, 0); ctx.stroke();
                 ctx.fillStyle = 'white';
-                ctx.beginPath();
-                ctx.moveTo(power, 0);
-                ctx.lineTo(power - 10, -5);
-                ctx.lineTo(power - 10, 5);
-                ctx.fill();
-
+                ctx.beginPath(); ctx.moveTo(power, 0); ctx.lineTo(power - 10, -5); ctx.lineTo(power - 10, 5); ctx.fill();
                 ctx.restore();
             }
         }
 
         function drawGolfer() {
-            // A simple top-down golfer
-            // Positioned near the ball, rotated by golferAngle
-            
             const offsetDist = 25;
             const gx = gameState.ball.x - Math.cos(gameState.golferAngle) * offsetDist;
             const gy = gameState.ball.y - Math.sin(gameState.golferAngle) * offsetDist;
@@ -639,48 +676,22 @@
             ctx.translate(gx, gy);
             ctx.rotate(gameState.golferAngle);
 
-            // Shoulders
-            ctx.fillStyle = '#e74c3c'; // Red shirt
-            ctx.beginPath();
-            ctx.ellipse(0, 0, 10, 18, 0, 0, Math.PI * 2);
-            ctx.fill();
-
-            // Head
-            ctx.fillStyle = '#f1c40f'; // Yellow hat/hair
-            ctx.beginPath();
-            ctx.arc(0, 0, 8, 0, Math.PI * 2);
-            ctx.fill();
-
-            // Putter (Line pointing to ball)
-            ctx.strokeStyle = '#95a5a6'; // Metal
-            ctx.lineWidth = 4;
-            ctx.beginPath();
-            ctx.moveTo(5, 5); // Right hand area
-            ctx.lineTo(offsetDist - 5, 0); // Towards ball
-            ctx.stroke();
-            
-            // Putter head
-            ctx.strokeStyle = '#34495e';
-            ctx.lineWidth = 4;
-            ctx.beginPath();
-            ctx.moveTo(offsetDist - 5, -5);
-            ctx.lineTo(offsetDist - 5, 5);
-            ctx.stroke();
-
+            ctx.fillStyle = '#e74c3c'; ctx.beginPath(); ctx.ellipse(0, 0, 10, 18, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#f1c40f'; ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = '#95a5a6'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(5, 5); ctx.lineTo(offsetDist - 5, 0); ctx.stroke();
+            ctx.strokeStyle = '#34495e'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(offsetDist - 5, -5); ctx.lineTo(offsetDist - 5, 5); ctx.stroke();
             ctx.restore();
         }
 
-        /**
-         * Game Loop
-         */
         function gameLoop() {
-            update();
+            if (gameState.isPlaying) update();
             draw();
-            requestAnimationFrame(gameLoop);
+            animationFrameId = requestAnimationFrame(gameLoop);
         }
 
-        // Start
-        initGame();
+        // Init
+        resize();
+        gameLoop(); // Start loop immediately for menu BG
 
     </script>
 </body>
